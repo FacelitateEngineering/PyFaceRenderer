@@ -21,6 +21,8 @@ def resize_renderer():
     dpg.set_item_pos('__face_render_image', (x_pos, 0))
 
 
+
+
 class FaceRenderer: 
     fr_window = None
     ctrl_window = None
@@ -28,7 +30,7 @@ class FaceRenderer:
     def __init__(self, height=1920, width=1080, wireframe=True) -> None:
         with dpg.texture_registry(show=False):
             self.__texture_id = dpg.add_dynamic_texture(width, height, np.zeros((height, width, 4), dtype=np.uint8))
-        self.trackbacll = Trackball()
+        self.trackbacll = Trackball(size=(width, height), scale=1.0)
         self.mesh = pyrender.Mesh.from_trimesh(trimesh.load('examples/models/face_mesh.obj'), wireframe=wireframe)
         self.scene = pyrender.Scene()
         self.scene.add(self.mesh)
@@ -62,12 +64,17 @@ class FaceRenderer:
 
         with dpg.handler_registry() as fr_handler_reg:
             dpg.add_item_resize_handler(callback=resize_renderer)
-            dpg.add_mouse_down_handler()
-            dpg.add_mouse_release_handler()
-            dpg.add_mouse_drag_handler()
 
         dpg.bind_item_handler_registry(self.fr_window, fr_handler_reg)
         with dpg.window('FR Control panel', show=show_control) as self.ctrl_window:
             pass
 
+    
 
+
+
+    def __update(self):
+
+
+        dpg.set_value()
+        return 
