@@ -79,7 +79,7 @@ class FaceRenderer:
         
         with dpg.handler_registry():
             # dpg.add_mouse_down_handler(callback=self.dragged, user_data='mouse down')
-            # dpg.add_mouse_release_handler(callback=self.set_unclicked, )
+            dpg.add_mouse_release_handler(callback=self.set_unclicked, )
             
             dpg.add_mouse_drag_handler(callback=self.dragged, )
             
@@ -95,32 +95,28 @@ class FaceRenderer:
     def set_clicked(self, s, a, u):
         self._is_clicked = True
         self._start_drag_pos = None
-        print(u)
-        # print(f'set_clicked: {self.trackball.pose.copy()}')
-        print(f'set_clicked')
         return 
 
     def set_unclicked(self):
         self._is_clicked = False
         self._start_drag_pos = None
         self.trackball._pose = self.trackball._n_pose
-        print(f'set_unclicked')
+        # print(f'set_unclicked')
         return 
 
     def dragged(self, s, a, u):
         if not self._is_clicked:
-            print('dragged but outside')
             return 
-        
-        mouse_coord = (a[1], a[2]) 
+        mouse_coord = (a[1], -a[2]) 
         if self._start_drag_pos is None:
             self._start_drag_pos = mouse_coord
             self.trackball.set_state(Trackball.STATE_ROTATE)
             self.trackball.down(self._start_drag_pos)
+        elif mouse_coord[0] == 0 and mouse_coord[1] == 0:
+            # ghost drag
+            return 
         self.trackball.drag(mouse_coord)
         self._render()
-        # print(f'dragged rendered {self.trackball.pose.copy()}')
-        print(f'dragged rendered')
         return 
 
     def update_mesh(self, vertex:np.ndarray):
@@ -142,7 +138,7 @@ class FaceRenderer:
         texture_data = numpy2texture_data(color, bgr=False)
         dpg.set_value('__face_renderer_texture_tag', texture_data)
         logger.debug('Updated image')
-        print(f'rendered')
+        # print(f'rendered')
 
 
 
