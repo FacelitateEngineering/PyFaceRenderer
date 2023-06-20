@@ -3,7 +3,7 @@ import trimesh
 import pyrender
 import matplotlib.pyplot as plt
 
-fuze_trimesh = trimesh.load('examples/models/face_mesh.obj')
+fuze_trimesh = trimesh.load('examples/models/fuze.obj')
 mesh = pyrender.Mesh.from_trimesh(fuze_trimesh)
 scene = pyrender.Scene()
 scene.add(mesh)
@@ -22,6 +22,7 @@ light = pyrender.SpotLight(color=np.ones(3), intensity=3.0,
 scene.add(light, pose=camera_pose)
 r = pyrender.OffscreenRenderer(400, 400)
 color, depth = r.render(scene)
+print(color, color.shape, color.dtype)
 plt.figure()
 plt.subplot(1,2,1)
 plt.axis('off')
