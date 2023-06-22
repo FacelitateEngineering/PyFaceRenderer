@@ -9,7 +9,7 @@ import pyrender
 from pyrender.constants import RenderFlags
 import trimesh
 import logging as log
-from .utils import numpy2texture_data
+from .utils import numpy2texture_data, lookat
 from PIL import Image
 logger = log.getLogger('PyRenderer')
 
@@ -32,6 +32,11 @@ class FaceRenderer:
             self.mesh = pyrender.Mesh.from_trimesh(trimesh.load('examples/models/fuze.obj'), wireframe=wireframe)
         else:
             raise NotImplementedError(f'Unrecognized mesh or topology: {mesh}')
+        # _p = self.mesh._primitives[0]
+        # _p.positions -= _p.bounds[0]
+        # _p.positions /= _p.bounds[1] # now the bounds should be 0, 0, 0, 1, 1, 1
+        # _p.positions -= 0.5
+
         self.scene = pyrender.Scene(bg_color=[0.3, 0.3, 0.4, 0.2], ambient_light=[0.4]* 4)
         self.scene.add(self.mesh)
         self.camera = OrthographicCamera(
@@ -47,14 +52,14 @@ class FaceRenderer:
             [0.0,  s,   s,   0.35],
             [0.0,  0.0, 0.0, 1.0],
         ])
+        # self.init_camera_pose = lookat(np.array([5, 0, 0]), np.array([0, 0, 0]), np.array([0, 1, 0]), ).T
+        logger.info(self.init_camera_pose)
         
         self.trackball = Trackball(pose=self.init_camera_pose, size=(width, height), scale=1.0)
         self._camera_node = Node(matrix=self.init_camera_pose, camera=self.camera)
         self.scene.add_node(self._camera_node)
         self.scene.main_camera_node = self._camera_node
         
-
-        # self.scene.add(self.camera, pose=camera_pose)
         light = pyrender.SpotLight(color=np.ones(3), intensity=3.0,
                                 innerConeAngle=np.pi/16.0,
                                 outerConeAngle=np.pi/6.0)
@@ -63,8 +68,6 @@ class FaceRenderer:
         self._is_focus = False
         self._is_clicked = False
         self._start_drag_pos = None
-
-
         
     def show_face_renderer(self, show_control=True):
         with dpg.window(label='Face Renderer', tag='_face_renderer_window') as self.fr_window:
@@ -80,6 +83,7 @@ class FaceRenderer:
         with dpg.handler_registry():
             # dpg.add_mouse_down_handler(callback=self.dragged, user_data='mouse down')
             def reset_pose():
+                logger.info('Reset pose')
                 self.trackball._n_pose = self.init_camera_pose
                 self._render()
             dpg.add_key_press_handler(dpg.mvKey_R, callback=reset_pose)
@@ -104,7 +108,6 @@ class FaceRenderer:
         self._is_clicked = False
         self._start_drag_pos = None
         self.trackball._pose = self.trackball._n_pose
-        # print(f'set_unclicked')
         return 
 
     def dragged(self, s, a, u):
