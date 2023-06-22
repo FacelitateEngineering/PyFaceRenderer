@@ -41,15 +41,15 @@ class FaceRenderer:
         )
         
         s = np.sqrt(2)/2
-        camera_pose = np.array([
+        self.init_camera_pose = np.array([
             [0.0, -s,   s,   0.3],
             [1.0,  0.0, 0.0, 0.0],
             [0.0,  s,   s,   0.35],
             [0.0,  0.0, 0.0, 1.0],
         ])
         
-        self.trackball = Trackball(pose=camera_pose, size=(width, height), scale=1.0)
-        self._camera_node = Node(matrix=camera_pose, camera=self.camera)
+        self.trackball = Trackball(pose=self.init_camera_pose, size=(width, height), scale=1.0)
+        self._camera_node = Node(matrix=self.init_camera_pose, camera=self.camera)
         self.scene.add_node(self._camera_node)
         self.scene.main_camera_node = self._camera_node
         
@@ -58,7 +58,7 @@ class FaceRenderer:
         light = pyrender.SpotLight(color=np.ones(3), intensity=3.0,
                                 innerConeAngle=np.pi/16.0,
                                 outerConeAngle=np.pi/6.0)
-        self.scene.add(light, pose=camera_pose)
+        self.scene.add(light, pose=self.init_camera_pose)
         self._renderer = pyrender.OffscreenRenderer(width, height)
         self._is_focus = False
         self._is_clicked = False
@@ -79,8 +79,11 @@ class FaceRenderer:
         
         with dpg.handler_registry():
             # dpg.add_mouse_down_handler(callback=self.dragged, user_data='mouse down')
+            def reset_pose():
+                self.trackball._n_pose = self.init_camera_pose
+                self._render()
+            dpg.add_key_press_handler(dpg.mvKey_R, callback=reset_pose)
             dpg.add_mouse_release_handler(callback=self.set_unclicked, )
-            
             dpg.add_mouse_drag_handler(callback=self.dragged, )
             
         
@@ -135,6 +138,9 @@ class FaceRenderer:
             flags |= RenderFlags.FLIP_WIREFRAME
 
         color, depth = self._renderer.render(self.scene, flags)
+        depth = depth[..., None] > 0.01
+        depth = depth.astype(np.uint8) * 255
+        color = np.concatenate([color, depth], axis=-1)
         texture_data = numpy2texture_data(color, bgr=False)
         dpg.set_value('__face_renderer_texture_tag', texture_data)
         logger.debug('Updated image')
