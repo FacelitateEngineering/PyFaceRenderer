@@ -11,101 +11,92 @@ import trimesh
 import logging as log
 from .utils import numpy2texture_data, lookat
 from PIL import Image
+from pytorch3d.structures import Meshes
+from pytorch3d.io import load_obj
+from pytorch3d.renderer import (
+    look_at_view_transform,
+    OrthographicCameras,
+    FoVPerspectiveCameras, 
+    PointLights, 
+    RasterizationSettings, 
+    MeshRenderer, 
+    MeshRasterizer,  
+    SoftPhongShader,
+    TexturesVertex
+)
+import torch
 logger = log.getLogger('PyRenderer')
-
-
 
 
 class FaceRenderer: 
     fr_window = None
     ctrl_window = None
 
-    def __init__(self, mesh: Union[pyrender.Mesh, str], height=640, width=360, wireframe=True) -> None:
+    def __init__(self, mesh: Union[Meshes, str], height=640, width=360, wireframe=True) -> None:
         self._height = height
         self._width = width
         with dpg.texture_registry(show=False):
             self.__texture_id = dpg.add_dynamic_texture(width, height, np.ones((height, width, 4), dtype=np.uint8)*200, tag='__face_renderer_texture_tag')
         
-        if isinstance(mesh, pyrender.Mesh):
+        if isinstance(mesh, Meshes):
             self.mesh = mesh
         elif mesh == 'mediapipe':
-            self.mesh = pyrender.Mesh.from_trimesh(trimesh.load('examples/models/face_mesh.obj'), wireframe=wireframe)
+            verts, faces, aux = load_obj('examples/models/face_mesh.obj')
+            verts_rgb = torch.ones_like(verts)[None] # (1, V, 3)
+            verts_rgb[..., 0] = 69/255
+            verts_rgb[..., 1] = 145/255
+            verts_rgb[..., 2] = 197/255
+            textures = TexturesVertex(verts_rgb)
+            self.mesh = Meshes(verts=[verts], faces=[faces.verts_idx], textures=textures)
         elif mesh == 'fuze':
-            self.mesh = pyrender.Mesh.from_trimesh(trimesh.load('examples/models/fuze.obj'), wireframe=wireframe)
+            verts, faces, aux = load_obj('examples/models/fuze.obj')
+            verts_rgb = torch.ones_like(verts)[None] # (1, V, 3)
+            verts_rgb[..., 0] = 69/255
+            verts_rgb[..., 1] = 145/255
+            verts_rgb[..., 2] = 197/255
+            textures = TexturesVertex(verts_rgb)
+            self.mesh = Meshes(verts=[verts], faces=[faces.verts_idx], textures=textures)
         else:
             raise NotImplementedError(f'Unrecognized mesh or topology: {mesh}')
+        # print(verts.shape, verts.min(), verts.max())
 
-        _p = self.mesh._primitives[0]
-        _p.positions -= _p.bounds[0]
-        _p.positions /= max(_p.bounds[1]) # now the bounds should be 0, 0, 0, 1, 1, 1
-        _p.positions -= _p.centroid
-        logger.debug(f'Bounds: {_p.bounds}, {_p.positions.shape}')
-
-        self.scene = pyrender.Scene(bg_color=[0.3, 0.3, 0.4, 0.2], ambient_light=[0.4]* 4)
-        self.mesh_node = Node(mesh=self.mesh)
-        self.scene.add_node(self.mesh_node)
-        self.camera = OrthographicCamera(
-            xmag=1.0, ymag=1.0,
-            znear=0.05,
-            zfar=100.0, 
-        )
-        
-        s = np.sqrt(2)/2
-        self.init_camera_pose = np.array([
-            [0.0, -s,   s,   0.5],
-            [1.0,  0.0, 0.0, 0.0],
-            [0.0,  s,   s,   0.35],
-            [0.0,  0.0, 0.0, 1.0],
-        ])
-        # self.init_camera_pose = lookat(np.array([5, 0, 0]), np.array([0, 0, 0]), np.array([0, 1, 0]), ).T
+        R, T = look_at_view_transform(10.0, 0, 0)
+        self.init_camera_pose = (R, T)
+        self.cameras = OrthographicCameras(R=R, T=T, focal_length=0.1)
+        # self.cameras = FoVPerspectiveCameras(R=R, T=T, fov=60)
         logger.info(self.init_camera_pose)
         
-        self.trackball = Trackball(pose=self.init_camera_pose, size=(width, height), scale=1.0)
-        
-        light = pyrender.SpotLight(color=np.ones(3), intensity=5.0,
-                                innerConeAngle=np.pi/4.0,
-                                outerConeAngle=np.pi/2)
-        self._camera_node = Node(matrix=self.init_camera_pose, camera=self.camera, light=light)
-        self.scene.add_node(self._camera_node)
-        self.scene.main_camera_node = self._camera_node
+        pose = np.zeros((4, 4))
+        # print(T.shape)
+        pose[:3, :3] = R
+        pose[:3, -1] = T
+        # print(pose)
+        self.trackball = Trackball(pose=pose, size=(width, height), scale=1.0)
 
-        # self.scene.add_node(self._light_node)1
-        self._renderer = pyrender.OffscreenRenderer(width, height)
+        raster_settings = RasterizationSettings(
+            image_size=(height, width, ), 
+            blur_radius=0.0, 
+            faces_per_pixel=1, 
+        )
+
+        lights = PointLights(device='cpu', location=[[0.0, 0.0, 0.0]])
+
+        self.renderer = MeshRenderer(
+            rasterizer=MeshRasterizer(
+                cameras=self.cameras, 
+                raster_settings=raster_settings
+            ),
+            shader=SoftPhongShader(
+                device='cpu', 
+                cameras=self.cameras,
+                lights=lights
+            )
+        )
 
         self._is_focus = False
         self._is_clicked = False
         self._start_drag_pos = None
         
-    def center_mesh(self):
-        _p = self.mesh._primitives[0]
-        logger.debug(f'Before Bounds: {_p.bounds}, {_p.positions.shape}')
-        _p.positions -= _p.bounds[0]
-        _p.positions /= max(_p.bounds[1]) # now the bounds should be 0, 0, 0, 1, 1, 1
-        _p.positions -= _p.centroid
-        logger.debug(f'After Bounds: {_p.bounds}, {_p.positions.shape}')
-        _p.upload_vertex_data()
-        logger.info('Centered Mesh')
-        self._render()
-
-    def up_mesh(self):
-        _p = self.mesh._primitives[0]
-        logger.debug(f'Before Bounds: {_p.bounds}, {_p.positions.shape}')
-        _p.positions += 0.1
-        _p.upload_vertex_data()
-        logger.debug(f'After Bounds: {_p.bounds}, {_p.positions.shape}')
-        logger.info('Uped Mesh')
-        self._render()
-
-    # def remove_mesh(self):
-    #     self.scene.remove_node(self.mesh_node)
-
-    # def add_mesh(self):
-    #     self.scene.add_node(self.mesh_node)
-
-    # def update_mesh(self):
-
-    #     return
-
 
 
     def show_face_renderer(self, show_control=True):
@@ -121,6 +112,7 @@ class FaceRenderer:
         
         with dpg.handler_registry():
             # dpg.add_mouse_down_handler(callback=self.dragged, user_data='mouse down')
+            
             def reset_pose():
                 logger.info('Reset pose')
                 self.trackball._n_pose = self.init_camera_pose
@@ -129,14 +121,20 @@ class FaceRenderer:
             dpg.add_mouse_release_handler(callback=self.set_unclicked, )
             dpg.add_mouse_drag_handler(callback=self.dragged, )
             
+            
         
         dpg.bind_item_handler_registry('__face_render_image', fr_handler_reg)
         
         width = 100
         with dpg.window(label='FR Control panel', show=show_control) as self.ctrl_window:
-            dpg.add_checkbox(label='Wireframe', tag='__fr_ctrl_panel_wireframe', )
-            dpg.add_button(label='Center Mesh', callback=self.center_mesh, width=width)
-            dpg.add_button(label='Up Mesh', callback=self.up_mesh, width=width)
+            dpg.add_combo(['cuda', 'cpu', 'mps'], label='Device')
+            dpg.add_drag_float(label='Dist', tag='__fr_ctrl_panel_dist', default_value=10.0, min_value=-90, max_value=90)
+            dpg.add_drag_float(label='Elev', tag='__fr_ctrl_panel_elev', default_value=0.0, min_value=-90, max_value=90)
+            dpg.add_drag_float(label='Azim', tag='__fr_ctrl_panel_azim', default_value=0.0, min_value=-90, max_value=90)
+
+            # dpg.add_checkbox(label='Wireframe', tag='__fr_ctrl_panel_wireframe', )
+            # dpg.add_button(label='Center Mesh', callback=self.center_mesh, width=width)
+            # dpg.add_button(label='Up Mesh', callback=self.up_mesh, width=width)
             dpg.add_button(label='Render', callback=self._render, width=width)
             pass
         self._render()
@@ -167,28 +165,26 @@ class FaceRenderer:
         self._render()
         return 
 
-    def update_mesh(self, vertex:np.ndarray):
-        vertex_array = self.mesh.primitives[0].position
-        if vertex.shape != vertex_array.shape:
+    def update_mesh(self, vertex:np.ndarray):        
+        if vertex.shape != self.mesh._verts_padded.shape:
             logger.error(f'Shape mismatch: {vertex.shape} != vertex_array.shape')
             return
-        self.mesh.primitives[0].position = vertex
+        self.mesh._verts_padded = vertex
         self._render()
     
+    @torch.no_grad()
     def _render(self):
         """Trigger a re-render event"""
-        pose = self.trackball.pose.copy()
-        self._camera_node.matrix = pose
-        # self._light_node.matrix = pose
-        flags = RenderFlags.NONE
-        if dpg.get_value('__fr_ctrl_panel_wireframe'):
-            flags |= RenderFlags.FLIP_WIREFRAME
-
-        color, depth = self._renderer.render(self.scene, flags)
-        depth = depth[..., None] > 0.01
-        depth = depth.astype(np.uint8) * 255
-        color = np.concatenate([color, depth], axis=-1)
-        texture_data = numpy2texture_data(color, bgr=False)
+        # pose = self.trackball.pose.copy()
+        # self._camera_node.matrix = pose
+        d, e, a = dpg.get_value('__fr_ctrl_panel_dist'), dpg.get_value('__fr_ctrl_panel_elev'), dpg.get_value('__fr_ctrl_panel_azim')
+        R, T = look_at_view_transform(d, e, a)
+        self.cameras.T = T
+        self.cameras.R = R
+        image = self.renderer(self.mesh)[0].numpy() * 255
+        
+        print(f'Render {image.shape}, {image[:, :, -1].max()}')
+        texture_data = numpy2texture_data(image, bgr=False)
         dpg.set_value('__face_renderer_texture_tag', texture_data)
         logger.debug('Updated image')
         # print(f'rendered')
