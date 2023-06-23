@@ -14,6 +14,8 @@ from PIL import Image
 logger = log.getLogger('PyRenderer')
 
 
+
+
 class FaceRenderer: 
     fr_window = None
     ctrl_window = None
@@ -32,13 +34,16 @@ class FaceRenderer:
             self.mesh = pyrender.Mesh.from_trimesh(trimesh.load('examples/models/fuze.obj'), wireframe=wireframe)
         else:
             raise NotImplementedError(f'Unrecognized mesh or topology: {mesh}')
-        # _p = self.mesh._primitives[0]
-        # _p.positions -= _p.bounds[0]
-        # _p.positions /= _p.bounds[1] # now the bounds should be 0, 0, 0, 1, 1, 1
-        # _p.positions -= 0.5
+
+        _p = self.mesh._primitives[0]
+        _p.positions -= _p.bounds[0]
+        _p.positions /= max(_p.bounds[1]) # now the bounds should be 0, 0, 0, 1, 1, 1
+        _p.positions -= _p.centroid
+        logger.debug(f'Bounds: {_p.bounds}, {_p.positions.shape}')
 
         self.scene = pyrender.Scene(bg_color=[0.3, 0.3, 0.4, 0.2], ambient_light=[0.4]* 4)
-        self.scene.add(self.mesh)
+        self.mesh_node = Node(mesh=self.mesh)
+        self.scene.add_node(self.mesh_node)
         self.camera = OrthographicCamera(
             xmag=1.0, ymag=1.0,
             znear=0.05,
@@ -47,7 +52,7 @@ class FaceRenderer:
         
         s = np.sqrt(2)/2
         self.init_camera_pose = np.array([
-            [0.0, -s,   s,   0.3],
+            [0.0, -s,   s,   0.5],
             [1.0,  0.0, 0.0, 0.0],
             [0.0,  s,   s,   0.35],
             [0.0,  0.0, 0.0, 1.0],
@@ -56,19 +61,53 @@ class FaceRenderer:
         logger.info(self.init_camera_pose)
         
         self.trackball = Trackball(pose=self.init_camera_pose, size=(width, height), scale=1.0)
-        self._camera_node = Node(matrix=self.init_camera_pose, camera=self.camera)
+        
+        light = pyrender.SpotLight(color=np.ones(3), intensity=5.0,
+                                innerConeAngle=np.pi/4.0,
+                                outerConeAngle=np.pi/2)
+        self._camera_node = Node(matrix=self.init_camera_pose, camera=self.camera, light=light)
         self.scene.add_node(self._camera_node)
         self.scene.main_camera_node = self._camera_node
-        
-        light = pyrender.SpotLight(color=np.ones(3), intensity=3.0,
-                                innerConeAngle=np.pi/16.0,
-                                outerConeAngle=np.pi/6.0)
-        self.scene.add(light, pose=self.init_camera_pose)
+
+        # self.scene.add_node(self._light_node)1
         self._renderer = pyrender.OffscreenRenderer(width, height)
+
         self._is_focus = False
         self._is_clicked = False
         self._start_drag_pos = None
         
+    def center_mesh(self):
+        _p = self.mesh._primitives[0]
+        logger.debug(f'Before Bounds: {_p.bounds}, {_p.positions.shape}')
+        _p.positions -= _p.bounds[0]
+        _p.positions /= max(_p.bounds[1]) # now the bounds should be 0, 0, 0, 1, 1, 1
+        _p.positions -= _p.centroid
+        logger.debug(f'After Bounds: {_p.bounds}, {_p.positions.shape}')
+        _p.upload_vertex_data()
+        logger.info('Centered Mesh')
+        self._render()
+
+    def up_mesh(self):
+        _p = self.mesh._primitives[0]
+        logger.debug(f'Before Bounds: {_p.bounds}, {_p.positions.shape}')
+        _p.positions += 0.1
+        _p.upload_vertex_data()
+        logger.debug(f'After Bounds: {_p.bounds}, {_p.positions.shape}')
+        logger.info('Uped Mesh')
+        self._render()
+
+    # def remove_mesh(self):
+    #     self.scene.remove_node(self.mesh_node)
+
+    # def add_mesh(self):
+    #     self.scene.add_node(self.mesh_node)
+
+    # def update_mesh(self):
+
+    #     return
+
+
+
     def show_face_renderer(self, show_control=True):
         with dpg.window(label='Face Renderer', tag='_face_renderer_window') as self.fr_window:
             dpg.add_image('__face_renderer_texture_tag', tag='__face_render_image', width=self._width, height=self._height)
@@ -93,9 +132,12 @@ class FaceRenderer:
         
         dpg.bind_item_handler_registry('__face_render_image', fr_handler_reg)
         
+        width = 100
         with dpg.window(label='FR Control panel', show=show_control) as self.ctrl_window:
             dpg.add_checkbox(label='Wireframe', tag='__fr_ctrl_panel_wireframe', )
-            dpg.add_button(label='Render', callback=self._render)
+            dpg.add_button(label='Center Mesh', callback=self.center_mesh, width=width)
+            dpg.add_button(label='Up Mesh', callback=self.up_mesh, width=width)
+            dpg.add_button(label='Render', callback=self._render, width=width)
             pass
         self._render()
 
@@ -135,7 +177,9 @@ class FaceRenderer:
     
     def _render(self):
         """Trigger a re-render event"""
-        self._camera_node.matrix = self.trackball.pose.copy()
+        pose = self.trackball.pose.copy()
+        self._camera_node.matrix = pose
+        # self._light_node.matrix = pose
         flags = RenderFlags.NONE
         if dpg.get_value('__fr_ctrl_panel_wireframe'):
             flags |= RenderFlags.FLIP_WIREFRAME
