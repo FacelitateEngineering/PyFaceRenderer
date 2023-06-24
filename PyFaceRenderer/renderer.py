@@ -79,24 +79,39 @@ class FaceRenderer:
             faces_per_pixel=1, 
         )
 
-        lights = PointLights(device='cpu', location=[[0.0, 0.0, 0.0]])
-
+        self.lights = PointLights(device='cpu', location=[[0.0, 0.0, 0.0]])
+        self.shader = SoftPhongShader(
+                device='cpu', 
+                cameras=self.cameras,
+                lights=self.lights
+            )
         self.renderer = MeshRenderer(
             rasterizer=MeshRasterizer(
                 cameras=self.cameras, 
                 raster_settings=raster_settings
             ),
-            shader=SoftPhongShader(
-                device='cpu', 
-                cameras=self.cameras,
-                lights=lights
-            )
+            shader=self.shader
         )
 
         self._is_focus = False
         self._is_clicked = False
         self._start_drag_pos = None
+        self._device = torch.device('cpu')
         
+
+    def to_device(self, device):
+        assert device in ['cuda', 'cpu', 'mps']
+        device = torch.device(device)
+        if device == self._device:
+            logger.debug(f'Not changing device (same) {device}')
+            return 
+        logger.info(f'Changing to {device}')
+        self.cameras = self.cameras.to(device)
+        self.mesh = self.mesh.to(device)
+        self.lights = self.lights.to(device)
+        self.shader = self.shader.to(device)
+        self._device = device
+
 
 
     def show_face_renderer(self, show_control=True):
@@ -121,19 +136,17 @@ class FaceRenderer:
             dpg.add_mouse_release_handler(callback=self.set_unclicked, )
             dpg.add_mouse_drag_handler(callback=self.dragged, )
             
-            
         
         dpg.bind_item_handler_registry('__face_render_image', fr_handler_reg)
         
         width = 100
         with dpg.window(label='FR Control panel', show=show_control) as self.ctrl_window:
-            dpg.add_combo(['cuda', 'cpu', 'mps'], label='Device')
+            dpg.add_combo(['cuda', 'cpu'], label='Device', callback=lambda s, a: self.to_device(a), default_value='cpu')
             dpg.add_drag_float(label='Dist', tag='__fr_ctrl_panel_dist', default_value=10.0, min_value=-90, max_value=90)
             dpg.add_drag_float(label='Elev', tag='__fr_ctrl_panel_elev', default_value=0.0, min_value=-90, max_value=90)
             dpg.add_drag_float(label='Azim', tag='__fr_ctrl_panel_azim', default_value=0.0, min_value=-90, max_value=90)
             dpg.add_drag_float(label='x-sensitivity', tag='__fr_ctrl_panel_x_sen', default_value=0.5, min_value=0.1, max_value=10.0, speed=0.1)
             dpg.add_drag_float(label='y-sensitivity', tag='__fr_ctrl_panel_y_sen', default_value=0.5, min_value=0.1, max_value=10.0, speed=0.1)
-
             # dpg.add_checkbox(label='Wireframe', tag='__fr_ctrl_panel_wireframe', )
             # dpg.add_button(label='Center Mesh', callback=self.center_mesh, width=width)
             # dpg.add_button(label='Up Mesh', callback=self.up_mesh, width=width)
@@ -192,7 +205,7 @@ class FaceRenderer:
         # pose = self.trackball.pose.copy()
         # self._camera_node.matrix = pose
         d, e, a = dpg.get_value('__fr_ctrl_panel_dist'), dpg.get_value('__fr_ctrl_panel_elev'), dpg.get_value('__fr_ctrl_panel_azim')
-        R, T = look_at_view_transform(d, e, a)
+        R, T = look_at_view_transform(d, e, a, device=self._device)
         self.cameras.T = T
         self.cameras.R = R
         image = self.renderer(self.mesh)[0].numpy() * 255
