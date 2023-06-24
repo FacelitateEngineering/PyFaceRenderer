@@ -14,35 +14,42 @@ from .primitive_extension import upload_vertex_data
 from PIL import Image
 logger = log.getLogger('PyRenderer')
 
-class FaceRenderer: 
+class FaceRenderer:
     fr_window = None
     ctrl_window = None
 
-    def __init__(self, mesh: Union[pyrender.Mesh, str], height=640, width=360, wireframe=True) -> None:
+    def __init__(self, mesh: Union[pyrender.Mesh, str], height=640, width=360) -> None:
         self._height = height
         self._width = width
         with dpg.texture_registry(show=False):
             self.__texture_id = dpg.add_dynamic_texture(width, height, np.ones((height, width, 4), dtype=np.uint8)*200, tag='__face_renderer_texture_tag')
-        
+
         if isinstance(mesh, pyrender.Mesh):
             self.mesh = mesh
         elif mesh == 'mediapipe':
-            self.mesh = pyrender.Mesh.from_trimesh(trimesh.load('examples/models/face_mesh.obj'), wireframe=wireframe)
+            _trimesh = trimesh.load('examples/models/face_mesh.obj')
+            # _v = _trimesh.vertices.copy()
+            # _trimesh.vertices[:, 0] = _v[:, 1]
+            # _trimesh.vertices[:, 1] = _v[:, 0]
+            self.mesh = pyrender.Mesh.from_trimesh(_trimesh, smooth=False, )
         elif mesh == 'fuze':
-            self.mesh = pyrender.Mesh.from_trimesh(trimesh.load('examples/models/fuze.obj'), wireframe=wireframe)
+            self.mesh = pyrender.Mesh.from_trimesh(trimesh.load('examples/models/fuze.obj'))
         else:
             raise NotImplementedError(f'Unrecognized mesh or topology: {mesh}')
-        
+
         self.scene = pyrender.Scene(bg_color=[0.3, 0.3, 0.4, 0.2], ambient_light=[0.4]* 4)
         self.mesh_node = Node(mesh=self.mesh)
         self.scene.add_node(self.mesh_node)
         self.camera = OrthographicCamera(
             xmag=1.0, ymag=1.0,
-            znear=0.05,
-            zfar=100.0, 
+            znear=0.01,
+            zfar=100.0,
         )
-        
+
         s = np.sqrt(2)/2
+        pose = np.eye(4)
+        
+
         self.init_camera_pose = np.array([
             [0.0, -s,   s,   0.5],
             [1.0,  0.0, 0.0, 0.0],
@@ -51,9 +58,9 @@ class FaceRenderer:
         ])
         # self.init_camera_pose = lookat(np.array([5, 0, 0]), np.array([0, 0, 0]), np.array([0, 1, 0]), ).T
         logger.info(self.init_camera_pose)
-        
+
         self.trackball = Trackball(pose=self.init_camera_pose, size=(width, height), scale=1.0)
-        
+
         light = pyrender.SpotLight(color=np.array([1.0, 0, 0]), intensity=3.0,
                                 innerConeAngle=np.pi/4.0,
                                 outerConeAngle=np.pi/2)
@@ -67,35 +74,44 @@ class FaceRenderer:
         self._is_focus = False
         self._is_clicked = False
         self._start_drag_pos = None
-        
+
     def center_mesh(self):
         self._renderer._platform.make_current()
         _p = self.mesh._primitives[0]
-        _p.positions -= _p.bounds[0]
-        _p.positions /= max(_p.bounds[1]) # now the bounds should be 0, 0, 0, 1, 1, 1
-        _p.positions -= _p.centroid
+        # logger.debug('Before Center')
+        # logger.debug(f'Bound: {_p.bounds}')
+        # logger.debug(f'Centroid: {_p.centroid}')
+        _p.positions = _p.positions - _p.bounds[0]
+        _p.positions = _p.positions/max(_p.bounds[1]) # now the bounds should be 0, 0, 0, 1, 1, 1
+        _p.positions = _p.positions-_p.centroid
+        # logger.debug('After Center')
+        # logger.debug(f'Bound: {_p.bounds}')
+        # logger.debug(f'Centroid: {_p.centroid}')
+
         upload_vertex_data(_p)
         logger.debug('Centered Mesh')
         self._render()
 
-    def up_mesh(self):
+    def move_mesh(self, axis, _dir):
         self._renderer._platform.make_current()
         _p = self.mesh._primitives[0]
-        _p.positions += 0.01
+        # logger.debug('Before Move')
+        # logger.debug(f'Bound: {_p.bounds}')
+        # logger.debug(f'Centroid: {_p.centroid}')
+        _p.positions[:, axis] += _dir*0.01
+        # _p.positions = _p.positions
+        # logger.debug('After Move')
+        # logger.debug(f'Bound: {_p.bounds}')
+        # logger.debug(f'Centroid: {_p.centroid}')
+
         upload_vertex_data(_p)
         logger.debug('Uped Mesh')
         self._render()
 
-    # def remove_mesh(self):
-    #     self.scene.remove_node(self.mesh_node)
-
-    # def add_mesh(self):
-    #     self.scene.add_node(self.mesh_node)
-
-    # def update_mesh(self):
-
-    #     return
-
+    def reset_pose(self):
+        logger.info('Reset pose')
+        self.trackball._n_pose = self.init_camera_pose
+        self._render()
 
 
     def show_face_renderer(self, show_control=True):
@@ -107,55 +123,63 @@ class FaceRenderer:
             dpg.add_item_resize_handler(callback=self.resize_renderer)
             dpg.add_item_clicked_handler(callback=self.set_clicked, user_data='Clicked')
             dpg.add_item_focus_handler(callback=self.set_clicked, user_data='Focus')
-            
-        
+
+
         with dpg.handler_registry():
-            # dpg.add_mouse_down_handler(callback=self.dragged, user_data='mouse down')
-            def reset_pose():
-                logger.info('Reset pose')
-                self.trackball._n_pose = self.init_camera_pose
-                self._render()
-            dpg.add_key_press_handler(dpg.mvKey_R, callback=reset_pose)
+            dpg.add_key_press_handler(dpg.mvKey_R, callback=self.reset_pose)
             dpg.add_mouse_release_handler(callback=self.set_unclicked, )
             dpg.add_mouse_drag_handler(callback=self.dragged, )
-            
-        
+
+
         dpg.bind_item_handler_registry('__face_render_image', fr_handler_reg)
-        
-        width = 100
+        self.trackball.set_state(Trackball.STATE_ROTATE)
+        width = 200
         with dpg.window(label='FR Control panel', show=show_control) as self.ctrl_window:
-            dpg.add_checkbox(label='Wireframe', tag='__fr_ctrl_panel_wireframe', callback=self._render)
-            dpg.add_button(label='Center Mesh', callback=self.center_mesh, width=width)
-            dpg.add_button(label='Up Mesh', callback=self.up_mesh, width=width)
+            with dpg.collapsing_header(label='Mesh Ctrl', default_open=True):
+                dpg.add_checkbox(label='Wireframe', tag='__fr_ctrl_panel_wireframe', callback=self._render)
+                dpg.add_button(label='Center', callback=self.center_mesh, width=width)
+                for i, axis in enumerate(['X', 'Y', 'Z']):
+                    with dpg.group(horizontal=True):
+                        dpg.add_text(axis)
+                        dpg.add_button(label='+', callback=lambda s, a, u: self.move_mesh(u[0], u[1]), width=int(width/2), user_data=(i, 1))
+                        dpg.add_button(label='-', callback=lambda s, a, u: self.move_mesh(u[0], u[1]), width=int(width/2), user_data=(i, -1))
+            with dpg.collapsing_header(label='Camera Ctrl', default_open=True):
+                dpg.add_button(label='Reset Pose', callback=self.reset_pose, width=width)
+                dpg.add_combo(['ROTATE', 'ZOOM', 'PAN', 'ROLL'], label='Mode', default_value='ROTATE', width=width, callback=lambda s, a: self.set_mode(a))
+                dpg.add_button(label="Print Pose", callback=self.print_pose, width=width)
             dpg.add_button(label='Render', callback=self._render, width=width)
             pass
         self._render()
 
+    def set_mode(self, mode):
+        mode = getattr(Trackball, f'STATE_{mode}')
+        self.trackball.set_state(mode)
+
+
     def set_clicked(self, s, a, u):
         self._is_clicked = True
         self._start_drag_pos = None
-        return 
+        return
 
     def set_unclicked(self):
         self._is_clicked = False
         self._start_drag_pos = None
         self.trackball._pose = self.trackball._n_pose
-        return 
+        return
 
     def dragged(self, s, a, u):
         if not self._is_clicked:
-            return 
-        mouse_coord = (a[1], -a[2]) 
+            return
+        mouse_coord = (a[1], -a[2])
         if self._start_drag_pos is None:
             self._start_drag_pos = mouse_coord
-            self.trackball.set_state(Trackball.STATE_ROTATE)
             self.trackball.down(self._start_drag_pos)
         elif mouse_coord[0] == 0 and mouse_coord[1] == 0:
             # ghost drag
-            return 
+            return
         self.trackball.drag(mouse_coord)
         self._render()
-        return 
+        return
 
     def update_mesh(self, vertex:np.ndarray):
         vertex_array = self.mesh.primitives[0].position
@@ -163,11 +187,11 @@ class FaceRenderer:
             logger.error(f'Shape mismatch: {vertex.shape} != vertex_array.shape')
             return
         self.mesh.primitives[0].position = vertex
+        upload_vertex_data(self.mesh.primitives[0])
         self._render()
-    
+
     def _render(self):
         """Trigger a re-render event"""
-
         pose = self.trackball.pose.copy()
         self._camera_node.matrix = pose
         # self._light_node.matrix = pose
@@ -182,12 +206,13 @@ class FaceRenderer:
         texture_data = numpy2texture_data(color, bgr=False)
         dpg.set_value('__face_renderer_texture_tag', texture_data)
         logger.debug('Updated image')
-        # print(f'rendered')
 
 
+    def print_pose(self):
+        print(self.trackball.pose)
+        return
 
     def resize_renderer(self):
-        # print('resize_renderer')
         with dpg.mutex():
             window_width, window_height = dpg.get_item_rect_size('_face_renderer_window')
             _window_height = window_height - 20
@@ -203,11 +228,10 @@ class FaceRenderer:
                 img_width = window_width
                 window_height = int(window_width/aspect_ratio)
                 # dpg.set_item_height('_face_renderer_window', window_width)
-            
+
             x_pos = int(window_width/2-img_width/2)
             dpg.set_item_height('__face_render_image', img_height)
             dpg.set_item_width('__face_render_image', img_width)
             dpg.set_item_pos('__face_render_image', (x_pos, 0))
             self.trackball.resize((img_width, img_height))
-            # print('resize_renderer')
-        
+
