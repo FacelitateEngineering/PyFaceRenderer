@@ -131,6 +131,8 @@ class FaceRenderer:
             dpg.add_drag_float(label='Dist', tag='__fr_ctrl_panel_dist', default_value=10.0, min_value=-90, max_value=90)
             dpg.add_drag_float(label='Elev', tag='__fr_ctrl_panel_elev', default_value=0.0, min_value=-90, max_value=90)
             dpg.add_drag_float(label='Azim', tag='__fr_ctrl_panel_azim', default_value=0.0, min_value=-90, max_value=90)
+            dpg.add_drag_float(label='x-sensitivity', tag='__fr_ctrl_panel_x_sen', default_value=0.5, min_value=0.1, max_value=10.0, speed=0.1)
+            dpg.add_drag_float(label='y-sensitivity', tag='__fr_ctrl_panel_y_sen', default_value=0.5, min_value=0.1, max_value=10.0, speed=0.1)
 
             # dpg.add_checkbox(label='Wireframe', tag='__fr_ctrl_panel_wireframe', )
             # dpg.add_button(label='Center Mesh', callback=self.center_mesh, width=width)
@@ -147,21 +149,33 @@ class FaceRenderer:
     def set_unclicked(self):
         self._is_clicked = False
         self._start_drag_pos = None
-        self.trackball._pose = self.trackball._n_pose
+        # self.trackball._pose = self.trackball._n_pose
         return 
 
     def dragged(self, s, a, u):
         if not self._is_clicked:
             return 
-        mouse_coord = (a[1], -a[2]) 
+        mouse_coord = (a[1], a[2]) 
         if self._start_drag_pos is None:
             self._start_drag_pos = mouse_coord
-            self.trackball.set_state(Trackball.STATE_ROTATE)
-            self.trackball.down(self._start_drag_pos)
+            self._start_drag_elev = dpg.get_value('__fr_ctrl_panel_elev')
+            self._start_drag_azim = dpg.get_value('__fr_ctrl_panel_azim')
+            # self.trackball.set_state(Trackball.STATE_ROTATE)
+            # self.trackball.down(self._start_drag_pos)
         elif mouse_coord[0] == 0 and mouse_coord[1] == 0:
             # ghost drag
             return 
-        self.trackball.drag(mouse_coord)
+        # self.trackball.drag(mouse_coord)
+        d_azim, d_elev = self._start_drag_pos[0] - mouse_coord[0], mouse_coord[1] - self._start_drag_pos[1]
+        print(f'delev dazim : {d_elev} {d_azim}')
+
+        elev = self._start_drag_elev + d_elev * dpg.get_value('__fr_ctrl_panel_x_sen')
+        azim = self._start_drag_azim + d_azim * dpg.get_value('__fr_ctrl_panel_y_sen')
+
+        print(f'elev azim : {elev} {azim}')
+
+        dpg.set_value('__fr_ctrl_panel_elev', elev)
+        dpg.set_value('__fr_ctrl_panel_azim', azim)
         self._render()
         return 
 
