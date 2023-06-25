@@ -8,6 +8,7 @@ dpg.create_viewport(title=f'PyFaceRenderer Sample', width=1920, height=1080, alw
 fr = FaceRenderer('mediapipe',)
 fr.show_face_renderer(show_control=True)
 
+
 dpg.setup_dearpygui()
 dpg.show_viewport()
-dpg.start_dearpygui() 
+dpg.start_dearpygui()   

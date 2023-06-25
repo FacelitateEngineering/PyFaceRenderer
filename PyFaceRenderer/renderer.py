@@ -18,7 +18,7 @@ class FaceRenderer:
     fr_window = None
     ctrl_window = None
 
-    def __init__(self, mesh: Union[pyrender.Mesh, str], height=640, width=360) -> None:
+    def __init__(self, mesh: Union[pyrender.Mesh, str], height=640, width=360, default_camera_pose=None) -> None:
         self._height = height
         self._width = width
         with dpg.texture_registry(show=False):
@@ -27,16 +27,16 @@ class FaceRenderer:
         if isinstance(mesh, pyrender.Mesh):
             self.mesh = mesh
         elif mesh == 'mediapipe':
-            _trimesh = trimesh.load('examples/models/face_mesh.obj')
-            # _v = _trimesh.vertices.copy()
-            # _trimesh.vertices[:, 0] = _v[:, 1]
-            # _trimesh.vertices[:, 1] = _v[:, 0]
-            self.mesh = pyrender.Mesh.from_trimesh(_trimesh, smooth=False, )
+            self.trimesh = trimesh.load('data/models/face_mesh.obj')
+            self.mesh = pyrender.Mesh.from_trimesh(self.trimesh, )
         elif mesh == 'fuze':
-            self.mesh = pyrender.Mesh.from_trimesh(trimesh.load('examples/models/fuze.obj'))
+            self.trimesh = trimesh.load('data/models/fuze.obj')
+            self.mesh = pyrender.Mesh.from_trimesh(self.trimesh)
         else:
             raise NotImplementedError(f'Unrecognized mesh or topology: {mesh}')
+        
 
+        
         self.scene = pyrender.Scene(bg_color=[0.3, 0.3, 0.4, 0.2], ambient_light=[0.4]* 4)
         self.mesh_node = Node(mesh=self.mesh)
         self.scene.add_node(self.mesh_node)
@@ -46,25 +46,19 @@ class FaceRenderer:
             zfar=100.0,
         )
 
-        s = np.sqrt(2)/2
-        pose = np.eye(4)
-        
+        if default_camera_pose is None:
+            default_camera_pose = np.eye(4)
+            default_camera_pose[2, -1] = 0.5
 
-        self.init_camera_pose = np.array([
-            [0.0, -s,   s,   0.5],
-            [1.0,  0.0, 0.0, 0.0],
-            [0.0,  s,   s,   0.35],
-            [0.0,  0.0, 0.0, 1.0],
-        ])
-        # self.init_camera_pose = lookat(np.array([5, 0, 0]), np.array([0, 0, 0]), np.array([0, 1, 0]), ).T
+        self.init_camera_pose = default_camera_pose
         logger.info(self.init_camera_pose)
 
         self.trackball = Trackball(pose=self.init_camera_pose, size=(width, height), scale=1.0)
 
-        light = pyrender.SpotLight(color=np.array([1.0, 0, 0]), intensity=3.0,
-                                innerConeAngle=np.pi/4.0,
-                                outerConeAngle=np.pi/2)
-        self._camera_node = Node(matrix=self.init_camera_pose, camera=self.camera, light=light)
+        self.light = pyrender.DirectionalLight(color=np.array([0.0, 0.45, 0.5]), intensity=30.0,)
+                                # innerConeAngle=np.pi/4.0,
+                                # outerConeAngle=np.pi/2)
+        self._camera_node = Node(matrix=self.init_camera_pose, camera=self.camera, light=self.light)
         self.scene.add_node(self._camera_node)
         self.scene.main_camera_node = self._camera_node
 
@@ -75,6 +69,16 @@ class FaceRenderer:
         self._is_clicked = False
         self._start_drag_pos = None
 
+    def set_light_intensity(self, intensity):
+        self.light.intensity = intensity
+        self._render()
+
+    def set_light_color(self, color):
+        self.light.color = np.array(color)
+        # print(self.light.color)
+        self._render()
+        pass
+
     def center_mesh(self):
         self._renderer._platform.make_current()
         _p = self.mesh._primitives[0]
@@ -84,9 +88,6 @@ class FaceRenderer:
         _p.positions = _p.positions - _p.bounds[0]
         _p.positions = _p.positions/max(_p.bounds[1]) # now the bounds should be 0, 0, 0, 1, 1, 1
         _p.positions = _p.positions-_p.centroid
-        # logger.debug('After Center')
-        # logger.debug(f'Bound: {_p.bounds}')
-        # logger.debug(f'Centroid: {_p.centroid}')
 
         upload_vertex_data(_p)
         logger.debug('Centered Mesh')
@@ -95,14 +96,7 @@ class FaceRenderer:
     def move_mesh(self, axis, _dir):
         self._renderer._platform.make_current()
         _p = self.mesh._primitives[0]
-        # logger.debug('Before Move')
-        # logger.debug(f'Bound: {_p.bounds}')
-        # logger.debug(f'Centroid: {_p.centroid}')
-        _p.positions[:, axis] += _dir*0.01
-        # _p.positions = _p.positions
-        # logger.debug('After Move')
-        # logger.debug(f'Bound: {_p.bounds}')
-        # logger.debug(f'Centroid: {_p.centroid}')
+        _p.positions[:, axis] += _dir*dpg.get_value('__fr_ctrl_panel_sensitivity')
 
         upload_vertex_data(_p)
         logger.debug('Uped Mesh')
@@ -121,6 +115,9 @@ class FaceRenderer:
 
         with dpg.item_handler_registry() as fr_handler_reg:
             dpg.add_item_resize_handler(callback=self.resize_renderer)
+        
+        with dpg.item_handler_registry() as fr_image_handler_reg:
+            
             dpg.add_item_clicked_handler(callback=self.set_clicked, user_data='Clicked')
             dpg.add_item_focus_handler(callback=self.set_clicked, user_data='Focus')
 
@@ -130,8 +127,8 @@ class FaceRenderer:
             dpg.add_mouse_release_handler(callback=self.set_unclicked, )
             dpg.add_mouse_drag_handler(callback=self.dragged, )
 
-
-        dpg.bind_item_handler_registry('__face_render_image', fr_handler_reg)
+        dpg.bind_item_handler_registry('_face_renderer_window', fr_handler_reg)
+        dpg.bind_item_handler_registry('__face_render_image', fr_image_handler_reg)
         self.trackball.set_state(Trackball.STATE_ROTATE)
         width = 200
         with dpg.window(label='FR Control panel', show=show_control) as self.ctrl_window:
@@ -139,14 +136,18 @@ class FaceRenderer:
                 dpg.add_checkbox(label='Wireframe', tag='__fr_ctrl_panel_wireframe', callback=self._render)
                 dpg.add_button(label='Center', callback=self.center_mesh, width=width)
                 for i, axis in enumerate(['X', 'Y', 'Z']):
-                    with dpg.group(horizontal=True):
+                    with dpg.group(horizontal=Tr1````ue):
                         dpg.add_text(axis)
                         dpg.add_button(label='+', callback=lambda s, a, u: self.move_mesh(u[0], u[1]), width=int(width/2), user_data=(i, 1))
                         dpg.add_button(label='-', callback=lambda s, a, u: self.move_mesh(u[0], u[1]), width=int(width/2), user_data=(i, -1))
+                dpg.add_drag_float(label='Sensitivity', width=width, default_value=0.01, speed=0.0005, min_value=0.0, max_value=0.1, tag='__fr_ctrl_panel_sensitivity')
             with dpg.collapsing_header(label='Camera Ctrl', default_open=True):
                 dpg.add_button(label='Reset Pose', callback=self.reset_pose, width=width)
                 dpg.add_combo(['ROTATE', 'ZOOM', 'PAN', 'ROLL'], label='Mode', default_value='ROTATE', width=width, callback=lambda s, a: self.set_mode(a))
                 dpg.add_button(label="Print Pose", callback=self.print_pose, width=width)
+            with dpg.collapsing_header(label='Light Ctrl', default_open=True):
+                dpg.add_drag_float(label='Intensity', callback=lambda s, a: self.set_light_intensity(a), width=width, default_value=30)
+                dpg.add_color_edit(default_value=(0, int(255*0.45), int(255*0.55)), label='Color', callback=lambda s, a: self.set_light_color((a[0:3])), )
             dpg.add_button(label='Render', callback=self._render, width=width)
             pass
         self._render()
@@ -182,13 +183,16 @@ class FaceRenderer:
         return
 
     def update_mesh(self, vertex:np.ndarray):
-        vertex_array = self.mesh.primitives[0].position
-        if vertex.shape != vertex_array.shape:
-            logger.error(f'Shape mismatch: {vertex.shape} != vertex_array.shape')
+        if vertex.shape != self.trimesh.vertices.shape:
+            logger.error(f'Shape mismatch: {vertex.shape} != {self.trimesh.vertices.shape}')
             return
-        self.mesh.primitives[0].position = vertex
+        self.trimesh.vertices[:] = vertex[:]
+        self.mesh.primitives[0].positions = self.trimesh.vertices
+        self.mesh.primitives[0].normals = self.trimesh.vertex_normals
         upload_vertex_data(self.mesh.primitives[0])
         self._render()
+        logger.info('Updated Mesh from vertex array')
+
 
     def _render(self):
         """Trigger a re-render event"""
