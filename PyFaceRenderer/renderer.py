@@ -75,7 +75,6 @@ class FaceRenderer:
 
     def set_light_color(self, color):
         self.light.color = np.array(color)
-        # print(self.light.color)
         self._render()
         pass
 
