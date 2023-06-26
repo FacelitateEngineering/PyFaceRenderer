@@ -20,21 +20,27 @@ results = face_mesh.process(rgb_image) # 顔メッシュを計算
 
 landmark_array = np.array([(landmark.x, landmark.y, landmark.z) for landmark in results.multi_face_landmarks[0].landmark])
 # landmark_array *= -1
-landmark_array[:, 0] *= 1080
-landmark_array[:, 1] *= 1920
-landmark_array[:, 2] *= 1080
-# code.interact(local=locals())
+landmark_array -= 0.5
+
+landmark_array[:, 0] *= 9/16
+landmark_array[:, 2] *= 9/16
 
 log.basicConfig(level='DEBUG')
 dpg.create_context()
 dpg.configure_app(docking=True, docking_space=True, )
-pose = np.eye(4)
-pose[1, 1] = -1
-pose[2, 2] = -1
-pose[2, 3] = -5
+# pose = np.eye(4)
+pose = np.array([
+    [1, 0, 0, 0.0],
+    [0, -1, 0, 0.0], 
+    [0, 0, -1, -5, ],
+    [0, 0, 0, 1],
+])
+# pose[1, 1] = -1
+# pose[2, 2] = -1
+# pose[2, 3] = -5
 dpg.create_viewport(title=f'PyFaceRenderer Mediapipe Sample', width=1920, height=1080, always_on_top=True, )
 
-fr = FaceRenderer('mediapipe', default_camera_pose=pose)
+fr = FaceRenderer('mediapipe', default_camera_pose=pose, background_image=rgb_image)
 fr.show_face_renderer(show_control=True)
 fr.update_mesh(landmark_array)
 

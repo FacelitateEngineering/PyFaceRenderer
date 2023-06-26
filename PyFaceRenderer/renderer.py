@@ -12,13 +12,14 @@ import logging as log
 from .utils import numpy2texture_data, lookat
 from .primitive_extension import upload_vertex_data
 from PIL import Image
+from typing import Optional
 logger = log.getLogger('PyRenderer')
 
 class FaceRenderer:
     fr_window = None
     ctrl_window = None
 
-    def __init__(self, mesh: Union[pyrender.Mesh, str], height=640, width=360, default_camera_pose=None) -> None:
+    def __init__(self, mesh: Union[pyrender.Mesh, str], height=640, width=360, default_camera_pose=None, background_image:Optional[np.ndarray]=None) -> None:
         self._height = height
         self._width = width
         with dpg.texture_registry(show=False):
@@ -35,13 +36,12 @@ class FaceRenderer:
         else:
             raise NotImplementedError(f'Unrecognized mesh or topology: {mesh}')
         
-
-        
+        self.background_image = np.array(Image.fromarray(background_image).resize([self._width, self._height]))
         self.scene = pyrender.Scene(bg_color=[0.3, 0.3, 0.4, 0.2], ambient_light=[0.4]* 4)
         self.mesh_node = Node(mesh=self.mesh)
         self.scene.add_node(self.mesh_node)
         self.camera = OrthographicCamera(
-            xmag=1.0, ymag=1.0,
+            xmag=0.5, ymag=0.5,
             znear=0.01,
             zfar=100.0,
         )
@@ -79,6 +79,15 @@ class FaceRenderer:
         self._render()
         pass
 
+
+    def print_centroid(self):
+        logger.info('Mesh Info:')
+        logger.info(f'Centroid: {self.mesh._primitives[0].centroid}')
+        logger.info(f'Bounds: {self.mesh._primitives[0].bounds}')
+        logger.info(f'Scales: {self.mesh._primitives[0].bounds[1] - self.mesh._primitives[0].bounds[0]}')
+
+        return 
+
     def center_mesh(self):
         self._renderer._platform.make_current()
         _p = self.mesh._primitives[0]
@@ -97,7 +106,7 @@ class FaceRenderer:
         self._renderer._platform.make_current()
         _p = self.mesh._primitives[0]
         _p.positions[:, axis] += _dir*dpg.get_value('__fr_ctrl_panel_sensitivity')
-
+        _p.positions = _p.positions # triggers the recalculation
         upload_vertex_data(_p)
         logger.debug('Uped Mesh')
         self._render()
@@ -133,14 +142,14 @@ class FaceRenderer:
         width = 200
         with dpg.window(label='FR Control panel', show=show_control) as self.ctrl_window:
             with dpg.collapsing_header(label='Mesh Ctrl', default_open=True):
-                dpg.add_checkbox(label='Wireframe', tag='__fr_ctrl_panel_wireframe', callback=self._render)
                 dpg.add_button(label='Center', callback=self.center_mesh, width=width)
                 for i, axis in enumerate(['X', 'Y', 'Z']):
-                    with dpg.group(horizontal=Tr1````ue):
+                    with dpg.group(horizontal=True):
                         dpg.add_text(axis)
                         dpg.add_button(label='+', callback=lambda s, a, u: self.move_mesh(u[0], u[1]), width=int(width/2), user_data=(i, 1))
                         dpg.add_button(label='-', callback=lambda s, a, u: self.move_mesh(u[0], u[1]), width=int(width/2), user_data=(i, -1))
                 dpg.add_drag_float(label='Sensitivity', width=width, default_value=0.01, speed=0.0005, min_value=0.0, max_value=0.1, tag='__fr_ctrl_panel_sensitivity')
+                dpg.add_button(label='Print Centorid', callback=self.print_centroid)
             with dpg.collapsing_header(label='Camera Ctrl', default_open=True):
                 dpg.add_button(label='Reset Pose', callback=self.reset_pose, width=width)
                 dpg.add_combo(['ROTATE', 'ZOOM', 'PAN', 'ROLL'], label='Mode', default_value='ROTATE', width=width, callback=lambda s, a: self.set_mode(a))
@@ -148,6 +157,10 @@ class FaceRenderer:
             with dpg.collapsing_header(label='Light Ctrl', default_open=True):
                 dpg.add_drag_float(label='Intensity', callback=lambda s, a: self.set_light_intensity(a), width=width, default_value=30)
                 dpg.add_color_edit(default_value=(0, int(255*0.45), int(255*0.55)), label='Color', callback=lambda s, a: self.set_light_color((a[0:3])), )
+            with dpg.collapsing_header(label='Visualization', default_open=True):
+                dpg.add_drag_float(label='Mesh Alpha', default_value=1.0, min_value=0.0, max_value=1.0, speed=0.05, clamped=True, tag='__fr_ctrl_panel_alpha', callback=self._render)
+                dpg.add_checkbox(label='Wireframe', tag='__fr_ctrl_panel_wireframe', callback=self._render)
+
             dpg.add_button(label='Render', callback=self._render, width=width)
             pass
         self._render()
@@ -169,7 +182,7 @@ class FaceRenderer:
         return
 
     def dragged(self, s, a, u):
-        if not self._is_clicked:
+        if not (self._is_clicked and dpg.is_item_focused('_face_renderer_window')):
             return
         mouse_coord = (a[1], -a[2])
         if self._start_drag_pos is None:
@@ -204,16 +217,24 @@ class FaceRenderer:
             flags |= RenderFlags.FLIP_WIREFRAME
 
         color, depth = self._renderer.render(self.scene, flags)
-        depth = depth[..., None] > 0.01
-        depth = depth.astype(np.uint8) * 255
-        color = np.concatenate([color, depth], axis=-1)
+        depth = (depth[..., None] > 0.01)
+        alpha = dpg.get_value('__fr_ctrl_panel_alpha')
+        if self.background_image is None:
+            depth = depth.astype(np.uint8) * int(255*alpha)
+            color = np.concatenate([color, depth], axis=-1)
+        elif alpha == 1.0: 
+            color = np.where(depth, color, self.background_image)
+        else: # alpha blending with image
+            depth = depth.astype(float)*alpha
+            color = (color * depth + self.background_image * (1-depth)).astype(np.uint8)
+
         texture_data = numpy2texture_data(color, bgr=False)
         dpg.set_value('__face_renderer_texture_tag', texture_data)
         logger.debug('Updated image')
 
 
     def print_pose(self):
-        print(self.trackball.pose)
+        logger.info(self.trackball.pose)
         return
 
     def resize_renderer(self):
