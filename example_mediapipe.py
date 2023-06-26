@@ -19,7 +19,6 @@ rgb_image = cv2.resize(rgb_image, (1080, 1920))
 results = face_mesh.process(rgb_image) # 顔メッシュを計算
 
 landmark_array = np.array([(landmark.x, landmark.y, landmark.z) for landmark in results.multi_face_landmarks[0].landmark])
-# landmark_array *= -1
 landmark_array -= 0.5
 
 landmark_array[:, 0] *= 9/16
