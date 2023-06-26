@@ -91,16 +91,20 @@ class FaceRenderer:
     def center_mesh(self):
         self._renderer._platform.make_current()
         _p = self.mesh._primitives[0]
-        # logger.debug('Before Center')
-        # logger.debug(f'Bound: {_p.bounds}')
-        # logger.debug(f'Centroid: {_p.centroid}')
-        _p.positions = _p.positions - _p.bounds[0]
-        _p.positions = _p.positions/max(_p.bounds[1]) # now the bounds should be 0, 0, 0, 1, 1, 1
         _p.positions = _p.positions-_p.centroid
-
         upload_vertex_data(_p)
         logger.debug('Centered Mesh')
         self._render()
+
+    def scale_mesh(self, scale=1.0):
+        self._renderer._platform.make_current()
+        _p = self.mesh._primitives[0]
+        ori_scale = max(_p.bounds[1] - _p.bounds[0])
+        _p.positions = _p.positions/ori_scale*scale # now the bounds should be 0, 0, 0, 1, 1, 1
+        upload_vertex_data(_p)
+        logger.debug(f'Scaled Mesh to {scale}')
+        self._render()
+        return 
 
     def move_mesh(self, axis, _dir):
         self._renderer._platform.make_current()
@@ -143,13 +147,16 @@ class FaceRenderer:
         with dpg.window(label='FR Control panel', show=show_control) as self.ctrl_window:
             with dpg.collapsing_header(label='Mesh Ctrl', default_open=True):
                 dpg.add_button(label='Center', callback=self.center_mesh, width=width)
+                dpg.add_button(label='Scale', callback=lambda: self.scale_mesh(), width=width)
+
                 for i, axis in enumerate(['X', 'Y', 'Z']):
-                    with dpg.group(horizontal=True):
-                        dpg.add_text(axis)
+                    with dpg.group(horizontal=True, horizontal_spacing=0):
                         dpg.add_button(label='+', callback=lambda s, a, u: self.move_mesh(u[0], u[1]), width=int(width/2), user_data=(i, 1))
                         dpg.add_button(label='-', callback=lambda s, a, u: self.move_mesh(u[0], u[1]), width=int(width/2), user_data=(i, -1))
+                        dpg.add_text(axis)
+
                 dpg.add_drag_float(label='Sensitivity', width=width, default_value=0.01, speed=0.0005, min_value=0.0, max_value=0.1, tag='__fr_ctrl_panel_sensitivity')
-                dpg.add_button(label='Print Centorid', callback=self.print_centroid)
+                dpg.add_button(label='Print Centorid', callback=self.print_centroid, width=width)
             with dpg.collapsing_header(label='Camera Ctrl', default_open=True):
                 dpg.add_button(label='Reset Pose', callback=self.reset_pose, width=width)
                 dpg.add_combo(['ROTATE', 'ZOOM', 'PAN', 'ROLL'], label='Mode', default_value='ROTATE', width=width, callback=lambda s, a: self.set_mode(a))
