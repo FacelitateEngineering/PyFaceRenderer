@@ -13,11 +13,13 @@ from .utils import numpy2texture_data, lookat
 from .primitive_extension import upload_vertex_data
 from PIL import Image
 from typing import Optional
+from pathlib import Path
 logger = log.getLogger('PyRenderer')
 
 class FaceRenderer:
     fr_window = None
     ctrl_window = None
+
 
     def __init__(self, mesh: Union[pyrender.Mesh, str], height=640, width=360, default_camera_pose=None, background_image:Optional[np.ndarray]=None) -> None:
         self._height = height
@@ -27,16 +29,25 @@ class FaceRenderer:
 
         if isinstance(mesh, pyrender.Mesh):
             self.mesh = mesh
+        elif isinstance(mesh, trimesh.Trimesh):
+            self.trimesh = mesh
+            self.mesh = pyrender.Mesh.from_trimesh(self.trimesh, )
         elif mesh == 'mediapipe':
             self.trimesh = trimesh.load('data/models/face_mesh.obj')
             self.mesh = pyrender.Mesh.from_trimesh(self.trimesh, )
         elif mesh == 'fuze':
             self.trimesh = trimesh.load('data/models/fuze.obj')
             self.mesh = pyrender.Mesh.from_trimesh(self.trimesh)
+        elif isinstance(mesh, (str, Path)):
+            mesh_path = Path(mesh)
+            assert mesh_path.exists(), mesh_path
+            self.trimesh = trimesh.load(str(mesh))
+            self.mesh = pyrender.Mesh.from_trimesh(self.trimesh)
         else:
             raise NotImplementedError(f'Unrecognized mesh or topology: {mesh}')
         
-        self.background_image = np.array(Image.fromarray(background_image).resize([self._width, self._height]))
+        
+        self.background_image = np.array(Image.fromarray(background_image).resize([self._width, self._height])) if background_image is not None else None
         self.scene = pyrender.Scene(bg_color=[0.3, 0.3, 0.4, 0.2], ambient_light=[0.4]* 4)
         self.mesh_node = Node(mesh=self.mesh)
         self.scene.add_node(self.mesh_node)
@@ -53,7 +64,8 @@ class FaceRenderer:
         self.init_camera_pose = default_camera_pose
         logger.info(self.init_camera_pose)
 
-        self.trackball = Trackball(pose=self.init_camera_pose, size=(width, height), scale=1.0)
+        self.trackball = Trackball(pose=self.init_camera_pose, size=(self._width, self._height), scale=1.0, )
+        # self.trackball
 
         self.light = pyrender.DirectionalLight(color=np.array([0.0, 0.45, 0.5]), intensity=30.0,)
                                 # innerConeAngle=np.pi/4.0,
@@ -65,9 +77,15 @@ class FaceRenderer:
         # self.scene.add_node(self._light_node)1
         self._renderer = pyrender.OffscreenRenderer(width, height)
 
+
+        self._render_callbacks = []
+        self._update_texture = True
         self._is_focus = False
         self._is_clicked = False
         self._start_drag_pos = None
+
+    def add_render_callbacks(self, callback):
+        self._render_callbacks.append(callback)
 
     def set_light_intensity(self, intensity):
         self.light.intensity = intensity
@@ -116,7 +134,7 @@ class FaceRenderer:
 
     def reset_pose(self):
         logger.info('Reset pose')
-        self.trackball._n_pose = self.init_camera_pose
+        self.trackball = Trackball(pose=self.init_camera_pose, size=(self._width, self._height), scale=1.0, )
         self._render()
 
 
@@ -208,6 +226,9 @@ class FaceRenderer:
         self.trimesh.vertices[:] = vertex[:]
         self.mesh.primitives[0].positions = self.trimesh.vertices
         self.mesh.primitives[0].normals = self.trimesh.vertex_normals
+        self.trackball._target = self.mesh.centroid
+        self.trackball._n_target = self.mesh.centroid
+        self.reset_pose()
         upload_vertex_data(self.mesh.primitives[0])
         self._render()
         logger.info('Updated Mesh from vertex array')
@@ -223,20 +244,22 @@ class FaceRenderer:
             flags |= RenderFlags.FLIP_WIREFRAME
 
         color, depth = self._renderer.render(self.scene, flags)
-        depth = (depth[..., None] > 0.01)
-        alpha = dpg.get_value('__fr_ctrl_panel_alpha')
-        if self.background_image is None:
-            depth = depth.astype(np.uint8) * int(255*alpha)
-            color = np.concatenate([color, depth], axis=-1)
-        elif alpha == 1.0: 
-            color = np.where(depth, color, self.background_image)
-        else: # alpha blending with image
-            depth = depth.astype(float)*alpha
-            color = (color * depth + self.background_image * (1-depth)).astype(np.uint8)
+        [callback(color, depth) for callback in self._render_callbacks]
+        if self._update_texture:
+            depth = (depth[..., None] > 0.01)
+            alpha = dpg.get_value('__fr_ctrl_panel_alpha')
+            if self.background_image is None:
+                depth = depth.astype(np.uint8) * int(255*alpha)
+                color = np.concatenate([color, depth], axis=-1)
+            elif alpha == 1.0: 
+                color = np.where(depth, color, self.background_image)
+            else: # alpha blending with image
+                depth = depth.astype(float)*alpha
+                color = (color * depth + self.background_image * (1-depth)).astype(np.uint8)
 
-        texture_data = numpy2texture_data(color, bgr=False)
-        dpg.set_value('__face_renderer_texture_tag', texture_data)
-        logger.debug('Updated image')
+            texture_data = numpy2texture_data(color, bgr=False)
+            dpg.set_value('__face_renderer_texture_tag', texture_data)
+            logger.debug('Updated image')
 
 
     def print_pose(self):

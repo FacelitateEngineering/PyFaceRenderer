@@ -27,16 +27,12 @@ landmark_array[:, 2] *= 9/16
 log.basicConfig(level='DEBUG')
 dpg.create_context()
 dpg.configure_app(docking=True, docking_space=True, )
-# pose = np.eye(4)
 pose = np.array([
     [1, 0, 0, 0.0],
     [0, -1, 0, 0.0], 
     [0, 0, -1, -5, ],
     [0, 0, 0, 1],
 ])
-# pose[1, 1] = -1
-# pose[2, 2] = -1
-# pose[2, 3] = -5
 dpg.create_viewport(title=f'PyFaceRenderer Mediapipe Sample', width=1920, height=1080, always_on_top=True, )
 
 fr = FaceRenderer('mediapipe', default_camera_pose=pose, background_image=rgb_image)
