@@ -38,6 +38,7 @@ dpg.create_viewport(title=f'PyFaceRenderer Mediapipe Sample', width=1920, height
 fr = FaceRenderer('mediapipe', default_camera_pose=pose, background_image=rgb_image)
 fr.show_face_renderer(show_control=True)
 fr.update_mesh(landmark_array)
+fr._render()
 
 dpg.setup_dearpygui()
 dpg.show_viewport()
