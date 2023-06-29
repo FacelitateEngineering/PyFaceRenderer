@@ -17,7 +17,7 @@ from pathlib import Path
 logger = log.getLogger('PyRenderer')
 
 class FaceRenderer:
-    fr_window = None
+    fr_window:Optional[int] = None
     ctrl_window = None
 
 
@@ -68,13 +68,11 @@ class FaceRenderer:
         # self.trackball
 
         self.light = pyrender.DirectionalLight(color=np.array([0.0, 0.45, 0.5]), intensity=30.0,)
-                                # innerConeAngle=np.pi/4.0,
-                                # outerConeAngle=np.pi/2)
         self._camera_node = Node(matrix=self.init_camera_pose, camera=self.camera, light=self.light)
         self.scene.add_node(self._camera_node)
         self.scene.main_camera_node = self._camera_node
 
-        # self.scene.add_node(self._light_node)1
+        # self.scene.add_node(self._light_node)
         self._renderer = pyrender.OffscreenRenderer(width, height)
 
 
@@ -219,18 +217,24 @@ class FaceRenderer:
         self._render()
         return
 
-    def update_mesh(self, vertex:np.ndarray):
-        if vertex.shape != self.trimesh.vertices.shape:
-            logger.error(f'Shape mismatch: {vertex.shape} != {self.trimesh.vertices.shape}')
-            return
-        self.trimesh.vertices[:] = vertex[:]
-        self.mesh.primitives[0].positions = self.trimesh.vertices
-        self.mesh.primitives[0].normals = self.trimesh.vertex_normals
-        self.trackball._target = self.mesh.centroid
-        self.trackball._n_target = self.mesh.centroid
-        self.reset_pose()
+    def update_mesh(self, vertex:np.ndarray, update_normal=True):
+        if update_normal:
+            if vertex.shape != self.trimesh.vertices.shape:
+                logger.error(f'Shape mismatch: {vertex.shape} != {self.trimesh.vertices.shape}')
+                return
+            self.trimesh.vertices[:] = vertex[:]
+            self.mesh.primitives[0].positions = self.trimesh.vertices
+            self.mesh.primitives[0].normals = self.trimesh.vertex_normals
+        else:
+            if vertex.shape != self.mesh.primitives[0].positions.shape:
+                logger.error(f'Shape mismatch: {vertex.shape} != {self.mesh.primitives[0].positions.shape}')
+                return 
+            self.mesh.primitives[0].positions = vertex
+        # self.trackball._target = self.mesh.centroid
+        # self.trackball._n_target = self.mesh.centroid
+        # self.reset_pose()
         upload_vertex_data(self.mesh.primitives[0])
-        self._render()
+        # self._render()
         logger.info('Updated Mesh from vertex array')
 
 
@@ -244,23 +248,23 @@ class FaceRenderer:
             flags |= RenderFlags.FLIP_WIREFRAME
 
         color, depth = self._renderer.render(self.scene, flags)
-        [callback(color, depth) for callback in self._render_callbacks]
+        
         if self._update_texture:
-            depth = (depth[..., None] > 0.01)
+            _depth = (depth[..., None] > 0.01)
             alpha = dpg.get_value('__fr_ctrl_panel_alpha')
             if self.background_image is None:
-                depth = depth.astype(np.uint8) * int(255*alpha)
-                color = np.concatenate([color, depth], axis=-1)
+                _depth = _depth.astype(np.uint8) * int(255*alpha)
+                color = np.concatenate([color, _depth], axis=-1)
             elif alpha == 1.0: 
-                color = np.where(depth, color, self.background_image)
+                color = np.where(_depth, color, self.background_image)
             else: # alpha blending with image
-                depth = depth.astype(float)*alpha
-                color = (color * depth + self.background_image * (1-depth)).astype(np.uint8)
+                _depth = _depth.astype(float)*alpha
+                color = (color * _depth + self.background_image * (1-_depth)).astype(np.uint8)
 
             texture_data = numpy2texture_data(color, bgr=False)
             dpg.set_value('__face_renderer_texture_tag', texture_data)
             logger.debug('Updated image')
-
+        return color, depth
 
     def print_pose(self):
         logger.info(self.trackball.pose)
