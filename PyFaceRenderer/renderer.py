@@ -218,6 +218,7 @@ class FaceRenderer:
         return
 
     def update_mesh(self, vertex:np.ndarray, update_normal=True):
+        self._renderer._platform.make_current()
         if update_normal:
             if vertex.shape != self.trimesh.vertices.shape:
                 logger.error(f'Shape mismatch: {vertex.shape} != {self.trimesh.vertices.shape}')
