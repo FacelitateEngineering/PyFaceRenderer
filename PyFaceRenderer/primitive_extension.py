@@ -43,18 +43,9 @@ def upload_vertex_data(primitive):
 
         primitive.face_renderer_buffer = vertex_data
         total_attr_size = sum(attr_sizes)
-        # index_buffer = np.zeros(total_attr_size, dtype=int)
         _idx = np.arange(n_vertex) * total_attr_size
         indice_array = np.concatenate([_idx, _idx+1, _idx+2])
         indice_array.sort()
-        print(f'indice_array: {indice_array.shape} {indice_array[:10]}')
         primitive.face_renderer_indice = indice_array
 
-
-
-
-    
-    vertex_data = np.ascontiguousarray(
-        primitive.face_renderer_buffer.flatten().astype(np.float32)
-    )
-    glBufferSubData( GL_ARRAY_BUFFER, 0, FLOAT_SZ * len(vertex_data), vertex_data,)
+    glBufferSubData( GL_ARRAY_BUFFER, 0, FLOAT_SZ * len(primitive.face_renderer_buffer), primitive.face_renderer_buffer,)
