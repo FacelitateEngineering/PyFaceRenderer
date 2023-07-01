@@ -145,21 +145,21 @@ class FaceRenderer:
             dpg.add_item_resize_handler(callback=self.resize_renderer)
         
         with dpg.item_handler_registry() as fr_image_handler_reg:
-            
             dpg.add_item_clicked_handler(callback=self.set_clicked, user_data='Clicked')
             dpg.add_item_focus_handler(callback=self.set_clicked, user_data='Focus')
 
 
-        with dpg.handler_registry():
+        with dpg.handler_registry(tag='_face_renderer_window_handler'):
             dpg.add_key_press_handler(dpg.mvKey_R, callback=self.reset_pose)
             dpg.add_mouse_release_handler(callback=self.set_unclicked, )
             dpg.add_mouse_drag_handler(callback=self.dragged, )
 
+        
         dpg.bind_item_handler_registry('_face_renderer_window', fr_handler_reg)
         dpg.bind_item_handler_registry('__face_render_image', fr_image_handler_reg)
         self.trackball.set_state(Trackball.STATE_ROTATE)
         width = 200
-        with dpg.window(label='FR Control panel', show=show_control) as self.ctrl_window:
+        with dpg.window(label='FR Control panel', show=show_control, tag='_face_renderer_ctrl_window') as self.ctrl_window:
             with dpg.collapsing_header(label='Mesh Ctrl', default_open=True):
                 dpg.add_button(label='Center', callback=self.center_mesh, width=width)
                 dpg.add_button(label='Scale', callback=lambda: self.scale_mesh(), width=width)
