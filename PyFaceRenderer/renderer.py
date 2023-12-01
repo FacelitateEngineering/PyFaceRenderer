@@ -14,6 +14,8 @@ from .primitive_extension import upload_vertex_data
 from PIL import Image
 from typing import Optional
 from pathlib import Path
+from .blendshape_model import ARKitModel
+
 logger = log.getLogger('PyRenderer')
 
 class FaceRenderer:
@@ -24,9 +26,10 @@ class FaceRenderer:
     def __init__(self, mesh: Union[pyrender.Mesh, str], height=640, width=360, default_camera_pose=None, background_image:Optional[np.ndarray]=None) -> None:
         self._height = height
         self._width = width
+        self.mesh_type = 'static'
         with dpg.texture_registry(show=False):
             self.__texture_id = dpg.add_dynamic_texture(width, height, np.ones((height, width, 4), dtype=np.uint8)*200, tag='__face_renderer_texture_tag')
-
+        
         if isinstance(mesh, pyrender.Mesh):
             self.mesh = mesh
         elif isinstance(mesh, trimesh.Trimesh):
@@ -38,6 +41,11 @@ class FaceRenderer:
         elif mesh == 'fuze':
             self.trimesh = trimesh.load('data/models/fuze.obj')
             self.mesh = pyrender.Mesh.from_trimesh(self.trimesh)
+        elif mesh == 'arkit':
+            self.blendshape_model = ARKitModel()
+            self.trimesh = self.blendshape_model.trimesh
+            self.mesh = self.blendshape_model.get_mesh()
+            self.mesh_type = 'blendshape'
         elif isinstance(mesh, (str, Path)):
             mesh_path = Path(mesh)
             assert mesh_path.exists(), mesh_path
@@ -200,7 +208,10 @@ class FaceRenderer:
             with dpg.collapsing_header(label='Visualization', default_open=True):
                 dpg.add_drag_float(label='Mesh Alpha', default_value=1.0, min_value=0.0, max_value=1.0, speed=0.05, clamped=True, tag='__fr_ctrl_panel_alpha', callback=self._render)
                 dpg.add_checkbox(label='Wireframe', tag='__fr_ctrl_panel_wireframe', callback=self._render)
-            
+            if self.mesh_type == 'blendshape':
+                with dpg.collapsing_header(label='Blendshapes', default_open=False):
+                    for i in range(self.blendshape_model.n_blendshapes):
+                        dpg.add_drag_float(label=self.blendshape_model.blendshape_names[i], default_value=0.0, min_value=-1.0, max_value=1.0, speed=0.05, clamped=True, callback=self._render)                    
             dpg.add_button(label='Render', callback=self._render, width=width)
             pass
         self._render()

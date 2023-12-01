@@ -3,37 +3,36 @@ from typing import List, Union, Optional, Iterable
 import trimesh
 import numpy as np
 from copy import copy
-
+from pathlib import Path
 class BlendshapeModel:
-    def __init__(self, meshes:Union[List[pyrender.Mesh], List[str]], blendshape_names:Optional[List[str]]) -> None:
-        if len(meshes) == 0:
-            raise ValueError("No meshes provided")
-        if isinstance(meshes[0], str):
-            self.meshes = list[map(lambda path: pyrender.Mesh.from_trimesh(trimesh.load(path)), meshes)]
-        elif isinstance(meshes[0], pyrender.Mesh):
-            self.meshes = meshes
-        else:
-            raise ValueError("Invalid mesh type")
-        if blendshape_names is not None:
-            assert len(blendshape_names) == len(meshes), "Number of blendshape names must match number of meshes"
+    def __init__(self, neutral_mesh:Union[Path, str], blendshapes: np.ndarray, blendshape_names:Optional[List[str]]=None) -> None:
+        self.trimesh = trimesh.load(neutral_mesh)
+        self.neutral_mesh = pyrender.Mesh.from_trimesh(self.trimesh)
         self.blendshape_names = blendshape_names
-        self.vertices = np.stack([m.primitives[0].position for m in self.meshes])
-        pass
-
+        self.blendshapes = blendshapes
 
     @property
     def n_blendshapes(self) -> int:
-        return len(self.meshes)
-    
+        return len(self.blendshapes)    
 
-    def get_mesh(self, coe) -> np.ndarray:
+    def get_mesh(self, coe:np.ndarray=None) -> np.ndarray:
+        if coe is None:
+            coe = np.zeros(self.n_blendshapes)
+            coe[0] = 1.0 # neutral
+        assert len(coe.shape) == 1, coe.shape
         assert len(coe) == self.n_blendshapes, "Number of blendshapes must match number of coefficients"
-        out = np.sum(coe[..., None, None] * self.vertices, axis=0) 
+        out = np.sum(coe[..., None, None] * self.blendshapes, axis=0) + self.neutral_mesh.primitives[0].positions
         return out
-    
+
+class ARKitModel(BlendshapeModel):
+    def __init__(self, ) -> None:
+        neutral_mesh = Path('deformation_transfer_ARkit_blendshapes/data/ARKit_blendShapes/Neutral.obj')
+        blendshapes = np.load('data/ARKit_blendshapes.npy')
+        with open('data/ARKit_blendshapes_names.txt', 'r') as f:
+            bs_names = f.read().split('\n')
+        super().__init__(neutral_mesh, blendshapes, bs_names)
+
 if __name__ == "__main__":
-    trimesh = trimesh.load('data/models/face_mesh.obj')
-    mesh = pyrender.Mesh.from_trimesh(trimesh)
+    arkit = ARKitModel()
     import code
     code.interact(local=locals())
-    
