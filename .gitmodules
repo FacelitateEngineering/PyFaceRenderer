@@ -1,0 +1,3 @@
+[submodule "deformation_transfer_ARkit_blendshapes"]
+	path = deformation_transfer_ARkit_blendshapes
+	url = https://github.com/vasiliskatr/deformation_transfer_ARkit_blendshapes
