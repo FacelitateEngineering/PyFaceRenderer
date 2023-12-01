@@ -81,6 +81,7 @@ class FaceRenderer:
         self._is_focus = False
         self._is_clicked = False
         self._start_drag_pos = None
+        self._mesh_pos_inv_operations = []
 
     def add_render_callbacks(self, callback):
         self._render_callbacks.append(callback)
@@ -94,19 +95,19 @@ class FaceRenderer:
         self._render()
         pass
 
-
     def print_centroid(self):
         logger.info('Mesh Info:')
         logger.info(f'Centroid: {self.mesh._primitives[0].centroid}')
         logger.info(f'Bounds: {self.mesh._primitives[0].bounds}')
         logger.info(f'Scales: {self.mesh._primitives[0].bounds[1] - self.mesh._primitives[0].bounds[0]}')
-
         return 
 
     def center_mesh(self):
         self._renderer._platform.make_current()
         _p = self.mesh._primitives[0]
-        _p.positions = _p.positions-_p.centroid
+        _p_centroid = _p.centroid
+        _p.positions = _p.positions-_p_centroid
+        self._mesh_pos_inv_operations.append(lambda x: x+_p_centroid)
         upload_vertex_data(_p)
         logger.debug('Centered Mesh')
         self._render()
@@ -116,6 +117,7 @@ class FaceRenderer:
         _p = self.mesh._primitives[0]
         ori_scale = max(_p.bounds[1] - _p.bounds[0])
         _p.positions = _p.positions/ori_scale*scale # now the bounds should be 0, 0, 0, 1, 1, 1
+        self._mesh_pos_inv_operations.append(lambda x: x/scale*ori_scale)
         upload_vertex_data(_p)
         logger.debug(f'Scaled Mesh to {scale}')
         self._render()
@@ -124,10 +126,25 @@ class FaceRenderer:
     def move_mesh(self, axis, _dir):
         self._renderer._platform.make_current()
         _p = self.mesh._primitives[0]
-        _p.positions[:, axis] += _dir*dpg.get_value('__fr_ctrl_panel_sensitivity')
+        _step = dpg.get_value('__fr_ctrl_panel_sensitivity')
+        _p.positions[:, axis] += _dir*_step
         _p.positions = _p.positions # triggers the recalculation
+        def unmove(x):
+            x[:, axis] -= _dir*_step
+            return x
+        self._mesh_pos_inv_operations.append(unmove)
         upload_vertex_data(_p)
         logger.debug('Uped Mesh')
+        self._render()
+
+    def reset_mesh(self):
+        self._renderer._platform.make_current()
+        _p = self.mesh._primitives[0]
+        for op in self._mesh_pos_inv_operations[::-1]:
+            _p.positions = op(_p.positions)
+        upload_vertex_data(_p)
+        logger.debug('Reset Mesh')
+        self._mesh_pos_inv_operations.clear()
         self._render()
 
     def reset_pose(self):
@@ -172,6 +189,7 @@ class FaceRenderer:
 
                 dpg.add_drag_float(label='Sensitivity', width=width, default_value=0.01, speed=0.0005, min_value=0.0, max_value=0.1, tag='__fr_ctrl_panel_sensitivity')
                 dpg.add_button(label='Print Centorid', callback=self.print_centroid, width=width)
+                dpg.add_button(label='Reset', callback=self.reset_mesh, width=width)
             with dpg.collapsing_header(label='Camera Ctrl', default_open=True):
                 dpg.add_button(label='Reset Pose', callback=self.reset_pose, width=width)
                 dpg.add_combo(['ROTATE', 'ZOOM', 'PAN', 'ROLL'], label='Mode', default_value='ROTATE', width=width, callback=lambda s, a: self.set_mode(a))
@@ -182,7 +200,7 @@ class FaceRenderer:
             with dpg.collapsing_header(label='Visualization', default_open=True):
                 dpg.add_drag_float(label='Mesh Alpha', default_value=1.0, min_value=0.0, max_value=1.0, speed=0.05, clamped=True, tag='__fr_ctrl_panel_alpha', callback=self._render)
                 dpg.add_checkbox(label='Wireframe', tag='__fr_ctrl_panel_wireframe', callback=self._render)
-
+            
             dpg.add_button(label='Render', callback=self._render, width=width)
             pass
         self._render()
