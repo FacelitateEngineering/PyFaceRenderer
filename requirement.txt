@@ -1,2 +1,5 @@
 pyrender
 dearpygui
+mediapipe
+opencv-python
+numpy

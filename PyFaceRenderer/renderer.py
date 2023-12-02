@@ -44,7 +44,7 @@ class FaceRenderer:
         elif mesh == 'arkit':
             self.blendshape_model = ARKitModel()
             self.trimesh = self.blendshape_model.trimesh
-            self.mesh = self.blendshape_model.get_mesh()
+            self.mesh = self.blendshape_model.neutral_mesh
             self.mesh_type = 'blendshape'
         elif isinstance(mesh, (str, Path)):
             mesh_path = Path(mesh)
@@ -209,9 +209,18 @@ class FaceRenderer:
                 dpg.add_drag_float(label='Mesh Alpha', default_value=1.0, min_value=0.0, max_value=1.0, speed=0.05, clamped=True, tag='__fr_ctrl_panel_alpha', callback=self._render)
                 dpg.add_checkbox(label='Wireframe', tag='__fr_ctrl_panel_wireframe', callback=self._render)
             if self.mesh_type == 'blendshape':
+                self._coe = np.zeros(self.blendshape_model.n_blendshapes)
+                def _update_blendshape(s, a, u):
+                    self._coe[u] = a
+                    vertices = self.blendshape_model.get_mesh(self._coe)                    
+                    self._render()
+                    
                 with dpg.collapsing_header(label='Blendshapes', default_open=False):
                     for i in range(self.blendshape_model.n_blendshapes):
-                        dpg.add_drag_float(label=self.blendshape_model.blendshape_names[i], default_value=0.0, min_value=-1.0, max_value=1.0, speed=0.05, clamped=True, callback=self._render)                    
+                        with dpg.group(horizontal=True, horizontal_spacing=0):
+                            dpg.add_text(str(self.blendshape_model.blendshape_names[i]), )
+                            dpg.add_drag_float(default_value=0.0, min_value=-1.0, max_value=1.0, speed=0.05, clamped=True, callback=_update_blendshape)
+
             dpg.add_button(label='Render', callback=self._render, width=width)
             pass
         self._render()
@@ -260,11 +269,7 @@ class FaceRenderer:
                 logger.error(f'Shape mismatch: {vertex.shape} != {self.mesh.primitives[0].positions.shape}')
                 return 
             self.mesh.primitives[0].positions = vertex
-        # self.trackball._target = self.mesh.centroid
-        # self.trackball._n_target = self.mesh.centroid
-        # self.reset_pose()
         upload_vertex_data(self.mesh.primitives[0])
-        # self._render()
         logger.info('Updated Mesh from vertex array')
 
 
