@@ -114,9 +114,7 @@ class FaceRenderer:
         self._renderer._platform.make_current()
         _p = self.mesh._primitives[0]
         _p_centroid = _p.centroid
-        _p.positions = _p.positions-_p_centroid
-        self._mesh_pos_inv_operations.append(lambda x: x+_p_centroid)
-        upload_vertex_data(_p)
+        self._trans = -_p_centroid
         logger.debug('Centered Mesh')
         self._render()
 
@@ -184,25 +182,36 @@ class FaceRenderer:
         dpg.bind_item_handler_registry('__face_render_image', fr_image_handler_reg)
         self.trackball.set_state(Trackball.STATE_ROTATE)
         width = 200
+        self._trans = np.zeros(3)
+        self._rot = np.eye(3)
+        self._scale = np.ones(3)
+        
         with dpg.window(label='FR Control panel', show=show_control, tag='_face_renderer_ctrl_window') as self.ctrl_window:
-            with dpg.collapsing_header(label='Mesh Ctrl', default_open=True):
+            with dpg.collapsing_header(label='Mesh', default_open=True):
                 dpg.add_button(label='Center', callback=self.center_mesh, width=width)
                 dpg.add_button(label='Scale', callback=lambda: self.scale_mesh(), width=width)
 
-                for i, axis in enumerate(['X', 'Y', 'Z']):
-                    with dpg.group(horizontal=True, horizontal_spacing=0):
-                        dpg.add_button(label='+', callback=lambda s, a, u: self.move_mesh(u[0], u[1]), width=int(width/2), user_data=(i, 1))
-                        dpg.add_button(label='-', callback=lambda s, a, u: self.move_mesh(u[0], u[1]), width=int(width/2), user_data=(i, -1))
-                        dpg.add_text(axis)
+                def set_trans(_, value, axis):
+                    self._trans[axis] = value
+                    self._render()
+
+                with dpg.group(horizontal=True, horizontal_spacing=0):
+                    for i, axis in enumerate(['X', 'Y', 'Z']):
+                        dpg.add_drag_float(callback=set_trans, width=width, default_value=0.0, speed=1.0, tag=f'__fr_ctrl_panel_trans_{axis}', user_data=i)
+
 
                 dpg.add_drag_float(label='Sensitivity', width=width, default_value=0.01, speed=0.0005, min_value=0.0, max_value=0.1, tag='__fr_ctrl_panel_sensitivity')
                 dpg.add_button(label='Print Centorid', callback=self.print_centroid, width=width)
                 dpg.add_button(label='Reset', callback=self.reset_mesh, width=width)
-            with dpg.collapsing_header(label='Camera Ctrl', default_open=True):
+            with dpg.collapsing_header(label='Camera', default_open=True):
                 dpg.add_button(label='Reset Pose', callback=self.reset_pose, width=width)
                 dpg.add_combo(['ROTATE', 'ZOOM', 'PAN', 'ROLL'], label='Mode', default_value='ROTATE', width=width, callback=lambda s, a: self.set_mode(a))
-                dpg.add_button(label="Print Pose", callback=self.print_pose, width=width)
-            with dpg.collapsing_header(label='Light Ctrl', default_open=True):
+                def _set_n_pose(s, a, u):
+                    self.trackball._n_pose[u] = a
+                    self._render()
+                for i in range(4):
+                    dpg.add_drag_floatx(tag=f'__fr_ctrl_panel_camera_pose_row_{i}', width=width, speed=0.05, min_value=-100.0, max_value=100.0, size=4, callback=_set_n_pose, user_data=i)
+            with dpg.collapsing_header(label='Light0', default_open=True):
                 dpg.add_drag_float(label='Intensity', callback=lambda s, a: self.set_light_intensity(a), width=width, default_value=30)
                 dpg.add_color_edit(default_value=(0, int(255*0.45), int(255*0.55)), label='Color', callback=lambda s, a: self.set_light_color((a[0:3])), )
             with dpg.collapsing_header(label='Visualization', default_open=True):
@@ -276,6 +285,7 @@ class FaceRenderer:
     def _render(self):
         """Trigger a re-render event"""
         pose = self.trackball.pose.copy()
+        print(f'Pose: {pose}') 
         self._camera_node.matrix = pose
         # self._light_node.matrix = pose
         flags = RenderFlags.NONE
@@ -299,6 +309,10 @@ class FaceRenderer:
             texture_data = numpy2texture_data(color, bgr=False)
             dpg.set_value('__face_renderer_texture_tag', texture_data)
             logger.debug('Updated image')
+
+        for i in range(4):
+            dpg.set_value(f'__fr_ctrl_panel_camera_pose_row_{i}', pose[i, :].astype(np.float32))
+
         return color, depth
 
     def print_pose(self):

@@ -4,6 +4,7 @@ import trimesh
 import numpy as np
 from copy import copy
 from pathlib import Path
+
 class BlendshapeModel:
     def __init__(self, neutral_mesh:Union[Path, str], blendshapes: np.ndarray, blendshape_names:Optional[List[str]]=None) -> None:
         self.trimesh = trimesh.load(neutral_mesh)
