@@ -2,7 +2,7 @@ from typing import Union
 import dearpygui.dearpygui as dpg
 import numpy as np
 from pyrender.trackball import Trackball
-from pyrender.camera import OrthographicCamera
+from pyrender.camera import OrthographicCamera, PerspectiveCamera
 from pyrender.node import Node
 from pyrender.light import DirectionalLight
 import pyrender
@@ -59,11 +59,7 @@ class FaceRenderer:
         self.scene = pyrender.Scene(bg_color=[0.3, 0.3, 0.4, 0.2], ambient_light=[0.4]* 4)
         self.mesh_node = Node(mesh=self.mesh)
         self.scene.add_node(self.mesh_node)
-        self.camera = OrthographicCamera(
-            xmag=0.5, ymag=0.5,
-            znear=0.01,
-            zfar=100.0,
-        )
+        self.set_camera(True)
 
         if default_camera_pose is None:
             default_camera_pose = np.eye(4)
@@ -102,6 +98,21 @@ class FaceRenderer:
         self.light.color = np.array(color)
         self._render()
         pass
+
+    def set_camera(self, is_orth:bool):
+        if is_orth:
+            self.camera = OrthographicCamera(
+                xmag=0.5, ymag=0.5,
+                znear=0.01,
+                zfar=100.0,
+            )
+        else:
+            self.camera = PerspectiveCamera(
+                yfov=120.0, 
+                aspectRatio=16/9, 
+            )
+
+        return 
 
     def print_centroid(self):
         logger.info('Mesh Info:')
@@ -201,10 +212,19 @@ class FaceRenderer:
 
 
                 dpg.add_drag_float(label='Sensitivity', width=width, default_value=0.01, speed=0.0005, min_value=0.0, max_value=0.1, tag='__fr_ctrl_panel_sensitivity')
-                dpg.add_button(label='Print Centorid', callback=self.print_centroid, width=width)
+                dpg.add_button(label='Print Centroid', callback=self.print_centroid, width=width)
                 dpg.add_button(label='Reset', callback=self.reset_mesh, width=width)
             with dpg.collapsing_header(label='Camera', default_open=True):
                 dpg.add_button(label='Reset Pose', callback=self.reset_pose, width=width)
+                def look_at_centroid():
+                    centroid = self.mesh._primitives[0].centroid
+                    camera_pos = self.trackball._n_pose[:3, 3]
+                    matrix = lookat(camera_pos, centroid, np.array([1, 0, 0]))
+                    print(f'camera_pos: {camera_pos}\ncentroid: {centroid}\nmatrix: {matrix}')
+                    self.trackball._n_pose = matrix
+                    self._render()
+                    return 
+                dpg.add_button(label='LookAt', callback=look_at_centroid, width=width)
                 dpg.add_combo(['ROTATE', 'ZOOM', 'PAN', 'ROLL'], label='Mode', default_value='ROTATE', width=width, callback=lambda s, a: self.set_mode(a))
                 def _set_n_pose(s, a, u):
                     self.trackball._n_pose[u] = a
@@ -285,7 +305,6 @@ class FaceRenderer:
     def _render(self):
         """Trigger a re-render event"""
         pose = self.trackball.pose.copy()
-        print(f'Pose: {pose}') 
         self._camera_node.matrix = pose
         # self._light_node.matrix = pose
         flags = RenderFlags.NONE
