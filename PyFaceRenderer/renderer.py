@@ -59,7 +59,6 @@ class FaceRenderer:
         self.scene = pyrender.Scene(bg_color=[0.3, 0.3, 0.4, 0.2], ambient_light=[0.4]* 4)
         self.mesh_node = Node(mesh=self.mesh)
         self.scene.add_node(self.mesh_node)
-        self.set_camera(True)
 
         if default_camera_pose is None:
             default_camera_pose = np.eye(4)
@@ -72,10 +71,7 @@ class FaceRenderer:
         # self.trackball
 
         self.light = pyrender.DirectionalLight(color=np.array([0.0, 0.45, 0.5]), intensity=30.0,)
-        self._camera_node = Node(matrix=self.init_camera_pose, camera=self.camera, light=self.light)
-        self.scene.add_node(self._camera_node)
-        self.scene.main_camera_node = self._camera_node
-
+        self.set_camera(True)
         # self.scene.add_node(self._light_node)
         self._renderer = pyrender.OffscreenRenderer(width, height)
 
@@ -99,19 +95,25 @@ class FaceRenderer:
         self._render()
         pass
 
-    def set_camera(self, is_orth:bool):
-        if is_orth:
+    def set_camera(self, cam_type:str):
+        if cam_type == 'persp':
+            self.camera = PerspectiveCamera(
+                yfov=np.pi, 
+                # aspectRatio=9/16,
+                znear=0.01,
+                zfar=100.0,
+ 
+            )
+        else:
             self.camera = OrthographicCamera(
                 xmag=0.5, ymag=0.5,
                 znear=0.01,
                 zfar=100.0,
             )
-        else:
-            self.camera = PerspectiveCamera(
-                yfov=120.0, 
-                aspectRatio=16/9, 
-            )
-
+        
+        self._camera_node = Node(matrix=self.trackball._n_pose, camera=self.camera, light=self.light)
+        self.scene.add_node(self._camera_node)
+        self.scene.main_camera_node = self._camera_node
         return 
 
     def print_centroid(self):
@@ -216,16 +218,17 @@ class FaceRenderer:
                 dpg.add_button(label='Reset', callback=self.reset_mesh, width=width)
             with dpg.collapsing_header(label='Camera', default_open=True):
                 dpg.add_button(label='Reset Pose', callback=self.reset_pose, width=width)
+                dpg.add_combo(['persp', 'orth'], label='Type', default_value='orth', width=width, callback=lambda s, a: self.set_camera(a))
                 def look_at_centroid():
                     centroid = self.mesh._primitives[0].centroid
                     camera_pos = self.trackball._n_pose[:3, 3]
                     matrix = lookat(camera_pos, centroid, np.array([1, 0, 0]))
-                    print(f'camera_pos: {camera_pos}\ncentroid: {centroid}\nmatrix: {matrix}')
                     self.trackball._n_pose = matrix
                     self._render()
                     return 
                 dpg.add_button(label='LookAt', callback=look_at_centroid, width=width)
-                dpg.add_combo(['ROTATE', 'ZOOM', 'PAN', 'ROLL'], label='Mode', default_value='ROTATE', width=width, callback=lambda s, a: self.set_mode(a))
+                dpg.add_combo(['ROTATE', 'ZOOM', 'PAN', 'ROLL'], label='Mode', default_value='ROTATE', width=width, 
+                callback=lambda s, a: self.set_mode(a))
                 def _set_n_pose(s, a, u):
                     self.trackball._n_pose[u] = a
                     self._render()
