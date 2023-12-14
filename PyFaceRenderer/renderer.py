@@ -71,10 +71,12 @@ class FaceRenderer:
         # self.trackball
 
         self.light = pyrender.DirectionalLight(color=np.array([0.0, 0.45, 0.5]), intensity=30.0,)
-        self.set_camera(True)
-        # self.scene.add_node(self._light_node)
-        self._renderer = pyrender.OffscreenRenderer(width, height)
+        self._camera_node = None
+        self.set_camera('perps')
+        self.scene.add_node(self._camera_node)
+        self.scene.main_camera_node = self._camera_node
 
+        self._renderer = pyrender.OffscreenRenderer(width, height)
 
         self._render_callbacks = []
         self._update_texture = True
@@ -102,7 +104,6 @@ class FaceRenderer:
                 # aspectRatio=9/16,
                 znear=0.01,
                 zfar=100.0,
- 
             )
         else:
             self.camera = OrthographicCamera(
@@ -110,10 +111,10 @@ class FaceRenderer:
                 znear=0.01,
                 zfar=100.0,
             )
-        
-        self._camera_node = Node(matrix=self.trackball._n_pose, camera=self.camera, light=self.light)
-        self.scene.add_node(self._camera_node)
-        self.scene.main_camera_node = self._camera_node
+        if self._camera_node is None:
+            self._camera_node = Node(matrix=self.trackball._n_pose, camera=self.camera, light=self.light)
+        else:
+            self._camera_node.camera = self.camera
         return 
 
     def print_centroid(self):
@@ -125,9 +126,8 @@ class FaceRenderer:
 
     def center_mesh(self):
         self._renderer._platform.make_current()
-        _p = self.mesh._primitives[0]
-        _p_centroid = _p.centroid
-        self._trans = -_p_centroid
+        center = (self.mesh._primitives[0].bounds[1] + self.mesh._primitives[0].bounds[0])/2
+        self._trans = -center
         logger.debug('Centered Mesh')
         self._render()
 
@@ -212,17 +212,16 @@ class FaceRenderer:
                     for i, axis in enumerate(['X', 'Y', 'Z']):
                         dpg.add_drag_float(callback=set_trans, width=width, default_value=0.0, speed=1.0, tag=f'__fr_ctrl_panel_trans_{axis}', user_data=i)
 
-
                 dpg.add_drag_float(label='Sensitivity', width=width, default_value=0.01, speed=0.0005, min_value=0.0, max_value=0.1, tag='__fr_ctrl_panel_sensitivity')
                 dpg.add_button(label='Print Centroid', callback=self.print_centroid, width=width)
                 dpg.add_button(label='Reset', callback=self.reset_mesh, width=width)
             with dpg.collapsing_header(label='Camera', default_open=True):
                 dpg.add_button(label='Reset Pose', callback=self.reset_pose, width=width)
-                dpg.add_combo(['persp', 'orth'], label='Type', default_value='orth', width=width, callback=lambda s, a: self.set_camera(a))
+                dpg.add_combo(['persp', 'orth'], label='Type', default_value='persp', width=width, callback=lambda s, a: self.set_camera(a))
                 def look_at_centroid():
-                    centroid = self.mesh._primitives[0].centroid
+                    center = (self.mesh._primitives[0].bounds[1] + self.mesh._primitives[0].bounds[0])/2
                     camera_pos = self.trackball._n_pose[:3, 3]
-                    matrix = lookat(camera_pos, centroid, np.array([1, 0, 0]))
+                    matrix = lookat(camera_pos, center, np.array([1, 0, 0]))
                     self.trackball._n_pose = matrix
                     self._render()
                     return 
@@ -349,14 +348,10 @@ class FaceRenderer:
             if window_width/_window_height > aspect_ratio: # too wide
                 img_height = _window_height
                 img_width = int(_window_height/16*9)
-                # window_width = int(window_height*aspect_ratio)
-                # dpg.set_item_width('_face_renderer_window', window_width)
-
             else: # too tall
                 img_height = int(window_width/9*16)
                 img_width = window_width
                 window_height = int(window_width/aspect_ratio)
-                # dpg.set_item_height('_face_renderer_window', window_width)
 
             x_pos = int(window_width/2-img_width/2)
             dpg.set_item_height('__face_render_image', img_height)
