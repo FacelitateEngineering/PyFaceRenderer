@@ -173,7 +173,7 @@ class FaceRenderer:
 
 
     def show_face_renderer(self, show_control=True):
-        with dpg.window(label='Face Renderer', tag='_face_renderer_window') as self.fr_window:
+        with dpg.window(label='Face Renderer', tag='_face_renderer_window', pos=(0, 0), width=self._width, height=self._height) as self.fr_window:
             dpg.add_image('__face_renderer_texture_tag', tag='__face_render_image', width=self._width, height=self._height)
             pass
 
@@ -199,7 +199,7 @@ class FaceRenderer:
         self._rot = np.eye(3)
         self._scale = np.ones(3)
         
-        with dpg.window(label='FR Control panel', show=show_control, tag='_face_renderer_ctrl_window') as self.ctrl_window:
+        with dpg.window(label='FR Control panel', show=show_control, tag='_face_renderer_ctrl_window', pos=(self._width, 0)) as self.ctrl_window:
             with dpg.collapsing_header(label='Mesh', default_open=True):
                 dpg.add_button(label='Center', callback=self.center_mesh, width=width)
                 dpg.add_button(label='Scale', callback=lambda: self.scale_mesh(), width=width)
