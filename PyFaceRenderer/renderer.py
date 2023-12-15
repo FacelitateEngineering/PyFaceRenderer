@@ -55,7 +55,7 @@ class FaceRenderer:
         
         
         self.background_image = np.array(Image.fromarray(background_image).resize([self._width, self._height])) if background_image is not None else None
-        self.scene = pyrender.Scene(bg_color=[0.3, 0.3, 0.4, 0.2], ambient_light=[0.4]* 4)
+        self.scene = pyrender.Scene(bg_color=[0.3, 0.3, 0.3, 0.2], )
         
         self.mesh_node = Node(mesh=self.mesh, )
         self.scene.add_node(self.mesh_node)
@@ -86,6 +86,7 @@ class FaceRenderer:
         self._is_clicked = False
         self._start_drag_pos = None
         self._mesh_pos_inv_operations = []
+        self._is_rendering = False
 
     def add_render_callbacks(self, callback):
         self._render_callbacks.append(callback)
@@ -173,7 +174,7 @@ class FaceRenderer:
         
 
         
-        with dpg.window(label='FR Control panel', show=show_control, tag='_face_renderer_ctrl_window', pos=(self._width, 0), height=self._height) as self.ctrl_window:
+        with dpg.window(label='FR Control panel', show=show_control, tag='_face_renderer_ctrl_window', pos=(self._width, 0), height=self._height, width=2*width) as self.ctrl_window:
             with dpg.collapsing_header(label='Mesh', default_open=True):
                 with dpg.group(horizontal=True, horizontal_spacing=0):
                     dpg.add_drag_doublex(width=width, speed=0.1, tag=f'__fr_ctrl_panel_mesh_trans', size=3, callback=self._render, min_value=-1000.0, max_value=1000.0)
@@ -191,8 +192,7 @@ class FaceRenderer:
 
                 
                     dpg.add_button(label='Reset', callback=self.reset_mesh, width=width)
-            with dpg.collapsing_header(label='Camera', default_open=True):
-                
+            with dpg.collapsing_header(label='Camera', default_open=False):    
                 def look_at_centroid():
                     center = (self.mesh._primitives[0].bounds[1] + self.mesh._primitives[0].bounds[0])/2
                     camera_pos = self.trackball._n_pose[:3, 3]
@@ -210,24 +210,44 @@ class FaceRenderer:
                     dpg.add_drag_floatx(tag=f'__fr_ctrl_panel_camera_pose_row_{i}', width=width, speed=0.05, min_value=-100.0, max_value=100.0, size=4, callback=_set_n_pose, user_data=i)
                 dpg.add_button(label='LookAt', callback=look_at_centroid, width=width)
                 dpg.add_button(label='Reset', callback=self.reset_pose, width=width, )
-            with dpg.collapsing_header(label='Light', default_open=True):
+            with dpg.collapsing_header(label='Light', default_open=False):
+                dpg.add_text('Directional')
                 dpg.add_drag_float(label='Intensity', callback=lambda s, a: self.set_light_intensity(a), width=width, default_value=30)
                 dpg.add_color_edit(default_value=(0, int(255*0.45), int(255*0.55)), label='Color', callback=lambda s, a: self.set_light_color((a[0:3])), )
-            with dpg.collapsing_header(label='Visualization', default_open=True):
+                # dpg.add_text('Ambient')
+                # dpg.add_drag_float(label='Intensity', callback=lambda s, a: self.scene.ambient_light(a), width=width, default_value=30)
+                # dpg.add_color_edit(default_value=(0, int(255*0.45), int(255*0.55)), label='Color', callback=lambda s, a: self.set_light_color((a[0:3])), )
+
+            with dpg.collapsing_header(label='Visualization', default_open=False):
                 dpg.add_drag_float(label='Mesh Alpha', default_value=1.0, min_value=0.0, max_value=1.0, speed=0.05, clamped=True, tag='__fr_ctrl_panel_alpha', callback=self._render)
                 dpg.add_checkbox(label='Wireframe', tag='__fr_ctrl_panel_wireframe', callback=self._render)
             if self.mesh_type == 'blendshape':
                 self._coe = np.zeros(self.blendshape_model.n_blendshapes)
                 def _update_blendshape(s, a, u):
-                    self._coe[u] = a
-                    vertices = self.blendshape_model.get_mesh(self._coe)                    
+                    if u is None:
+                        self._coe[:] = 0.0
+                    else:
+                        self._coe[u] = np.clip(a, 0.0, 1.0)
+                    vertices = self.blendshape_model.get_mesh(self._coe).copy()
+                    self.update_mesh(vertices, update_normal=False)
                     self._render()
                     
                 with dpg.collapsing_header(label='Blendshapes', default_open=False):
+                    blendshape_ids = []
                     for i in range(self.blendshape_model.n_blendshapes):
                         with dpg.group(horizontal=True, horizontal_spacing=0):
+                            id = dpg.add_drag_float(default_value=0.0, min_value=0.0, max_value=1.0, speed=0.01, clamped=True, callback=_update_blendshape, width=width, user_data=i)
+                            blendshape_ids.append(id)
                             dpg.add_text(str(self.blendshape_model.blendshape_names[i]), )
-                            dpg.add_drag_float(default_value=0.0, min_value=-1.0, max_value=1.0, speed=0.05, clamped=True, callback=_update_blendshape)
+                    def reset_blendshapes(s, a, u):
+                        for _id in u:
+                            dpg.set_value(_id, 0.0)
+                        self._coe[:] = 0.0
+                        vertices = self.blendshape_model.get_mesh(self._coe).copy()
+                        self.update_mesh(vertices, update_normal=False)
+                        self._render()
+
+                    dpg.add_button(label='Reset', callback=reset_blendshapes, width=width, user_data=blendshape_ids)
 
             dpg.add_button(label='Render', callback=self._render, width=width)
             pass
@@ -283,11 +303,11 @@ class FaceRenderer:
 
     def _render(self):
         """Trigger a re-render event"""
-        
+        if self._is_rendering:
+            return 
+        self._is_rendering = True
         pose = self.trackball.pose.copy()
         self._camera_node.matrix = pose
-        # import code
-        # code.interact(local=locals())
         self.mesh_node.translation = dpg.get_value('__fr_ctrl_panel_mesh_trans')[:3]
         self.mesh_node.rotation = rot2quat(*dpg.get_value('__fr_ctrl_panel_mesh_rot')[:3])
         self.mesh_node.scale = [dpg.get_value('__fr_ctrl_panel_mesh_scale')]*3
@@ -317,8 +337,7 @@ class FaceRenderer:
 
         for i in range(4):
             dpg.set_value(f'__fr_ctrl_panel_camera_pose_row_{i}', pose[i, :].astype(np.float32))
-        # center = (self.mesh._primitives[0].bounds[0] + self.mesh._primitives[0].bounds[1])/2
-        # dpg.set_value(f'__fr_ctrl_panel_trans', center.astype(np.float32))
+        self._is_rendering = False
         return color, depth
 
 

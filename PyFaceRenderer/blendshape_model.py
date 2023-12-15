@@ -9,6 +9,7 @@ class BlendshapeModel:
     def __init__(self, neutral_mesh:Union[Path, str], blendshapes: np.ndarray, blendshape_names:Optional[List[str]]=None) -> None:
         self.trimesh = trimesh.load(neutral_mesh)
         self.neutral_mesh = pyrender.Mesh.from_trimesh(self.trimesh)
+        self.neutral_position = np.asarray(self.neutral_mesh.primitives[0].positions.copy())
         self.blendshape_names = blendshape_names
         self.blendshapes = blendshapes
 
@@ -22,7 +23,8 @@ class BlendshapeModel:
             coe[0] = 1.0 # neutral
         assert len(coe.shape) == 1, coe.shape
         assert len(coe) == self.n_blendshapes, "Number of blendshapes must match number of coefficients"
-        out = np.sum(coe[..., None, None] * self.blendshapes, axis=0) + self.neutral_mesh.primitives[0].positions
+        print(coe.mean())
+        out = np.sum(coe[..., None, None] * self.blendshapes, axis=0) + self.neutral_position
         return out
 
 class ARKitModel(BlendshapeModel):
