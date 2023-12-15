@@ -33,7 +33,7 @@ pose = np.array([
     [0, 0, -1, -5, ],
     [0, 0, 0, 1],
 ])
-dpg.create_viewport(title=f'PyFaceRenderer Mediapipe Sample', width=1920, height=1080, always_on_top=True, )
+dpg.create_viewport(title=f'PyFaceRenderer Mediapipe Sample', width=700, height=640, always_on_top=True, )
 
 fr = FaceRenderer('mediapipe', default_camera_pose=pose, background_image=rgb_image)
 fr.show_face_renderer(show_control=True)

@@ -9,7 +9,7 @@ import pyrender
 from pyrender.constants import RenderFlags
 import trimesh
 import logging as log
-from .utils import numpy2texture_data, lookat
+from .utils import numpy2texture_data, lookat, rot2quat
 from .primitive_extension import upload_vertex_data
 from PIL import Image
 from typing import Optional
@@ -28,8 +28,7 @@ class FaceRenderer:
         self._width = width
         self.mesh_type = 'static'
         with dpg.texture_registry(show=False):
-            self.__texture_id = dpg.add_dynamic_texture(width, height, np.ones((height, width, 4), dtype=np.uint8)*200, tag='__face_renderer_texture_tag')
-        
+            self.__texture_id = dpg.add_dynamic_texture(width, height, np.ones((height, width, 4), dtype=np.uint8)*200, tag='__face_renderer_texture_tag')        
         if isinstance(mesh, pyrender.Mesh):
             self.mesh = mesh
         elif isinstance(mesh, trimesh.Trimesh):
@@ -57,8 +56,11 @@ class FaceRenderer:
         
         self.background_image = np.array(Image.fromarray(background_image).resize([self._width, self._height])) if background_image is not None else None
         self.scene = pyrender.Scene(bg_color=[0.3, 0.3, 0.4, 0.2], ambient_light=[0.4]* 4)
-        self.mesh_node = Node(mesh=self.mesh)
+        
+        self.mesh_node = Node(mesh=self.mesh, )
         self.scene.add_node(self.mesh_node)
+        
+        
 
         if default_camera_pose is None:
             default_camera_pose = np.eye(4)
@@ -72,7 +74,7 @@ class FaceRenderer:
 
         self.light = pyrender.DirectionalLight(color=np.array([0.0, 0.45, 0.5]), intensity=30.0,)
         self._camera_node = None
-        self.set_camera('perps')
+        self.set_camera('ortho')
         self.scene.add_node(self._camera_node)
         self.scene.main_camera_node = self._camera_node
 
@@ -100,70 +102,43 @@ class FaceRenderer:
     def set_camera(self, cam_type:str):
         if cam_type == 'persp':
             self.camera = PerspectiveCamera(
-                yfov=np.pi, 
+                yfov=2*np.pi, 
                 # aspectRatio=9/16,
                 znear=0.01,
-                zfar=100.0,
+                zfar=1000000.0,
             )
         else:
             self.camera = OrthographicCamera(
-                xmag=0.5, ymag=0.5,
+                xmag=1.0, ymag=1.0,
                 znear=0.01,
-                zfar=100.0,
+                zfar=1000000.0,
             )
         if self._camera_node is None:
             self._camera_node = Node(matrix=self.trackball._n_pose, camera=self.camera, light=self.light)
         else:
             self._camera_node.camera = self.camera
         return 
-
-    def print_centroid(self):
-        logger.info('Mesh Info:')
-        logger.info(f'Centroid: {self.mesh._primitives[0].centroid}')
-        logger.info(f'Bounds: {self.mesh._primitives[0].bounds}')
-        logger.info(f'Scales: {self.mesh._primitives[0].bounds[1] - self.mesh._primitives[0].bounds[0]}')
-        return 
+    
 
     def center_mesh(self):
         self._renderer._platform.make_current()
         center = (self.mesh._primitives[0].bounds[1] + self.mesh._primitives[0].bounds[0])/2
-        self._trans = -center
-        logger.debug('Centered Mesh')
+        _scale = dpg.get_value('__fr_ctrl_panel_mesh_scale')
+        dpg.set_value('__fr_ctrl_panel_mesh_trans', -center*_scale)
         self._render()
 
-    def scale_mesh(self, scale=1.0):
+    def scale_mesh(self):
         self._renderer._platform.make_current()
         _p = self.mesh._primitives[0]
         ori_scale = max(_p.bounds[1] - _p.bounds[0])
-        _p.positions = _p.positions/ori_scale*scale # now the bounds should be 0, 0, 0, 1, 1, 1
-        self._mesh_pos_inv_operations.append(lambda x: x/scale*ori_scale)
-        upload_vertex_data(_p)
-        logger.debug(f'Scaled Mesh to {scale}')
+        dpg.set_value('__fr_ctrl_panel_mesh_scale', 1.0/ori_scale)
         self._render()
         return 
 
-    def move_mesh(self, axis, _dir):
-        self._renderer._platform.make_current()
-        _p = self.mesh._primitives[0]
-        _step = dpg.get_value('__fr_ctrl_panel_sensitivity')
-        _p.positions[:, axis] += _dir*_step
-        _p.positions = _p.positions # triggers the recalculation
-        def unmove(x):
-            x[:, axis] -= _dir*_step
-            return x
-        self._mesh_pos_inv_operations.append(unmove)
-        upload_vertex_data(_p)
-        logger.debug('Uped Mesh')
-        self._render()
 
     def reset_mesh(self):
-        self._renderer._platform.make_current()
-        _p = self.mesh._primitives[0]
-        for op in self._mesh_pos_inv_operations[::-1]:
-            _p.positions = op(_p.positions)
-        upload_vertex_data(_p)
-        logger.debug('Reset Mesh')
-        self._mesh_pos_inv_operations.clear()
+        dpg.set_value('__fr_ctrl_panel_mesh_scale', 1.0)
+        dpg.set_value('__fr_ctrl_panel_mesh_trans', [0.0, 0.0, 0.0])
         self._render()
 
     def reset_pose(self):
@@ -195,29 +170,29 @@ class FaceRenderer:
         dpg.bind_item_handler_registry('__face_render_image', fr_image_handler_reg)
         self.trackball.set_state(Trackball.STATE_ROTATE)
         width = 200
-        self._trans = np.zeros(3)
-        self._rot = np.eye(3)
-        self._scale = np.ones(3)
         
-        with dpg.window(label='FR Control panel', show=show_control, tag='_face_renderer_ctrl_window', pos=(self._width, 0)) as self.ctrl_window:
+
+        
+        with dpg.window(label='FR Control panel', show=show_control, tag='_face_renderer_ctrl_window', pos=(self._width, 0), height=self._height) as self.ctrl_window:
             with dpg.collapsing_header(label='Mesh', default_open=True):
-                dpg.add_button(label='Center', callback=self.center_mesh, width=width)
-                dpg.add_button(label='Scale', callback=lambda: self.scale_mesh(), width=width)
-
-                def set_trans(_, value, axis):
-                    self._trans[axis] = value
-                    self._render()
-
                 with dpg.group(horizontal=True, horizontal_spacing=0):
-                    for i, axis in enumerate(['X', 'Y', 'Z']):
-                        dpg.add_drag_float(callback=set_trans, width=width, default_value=0.0, speed=1.0, tag=f'__fr_ctrl_panel_trans_{axis}', user_data=i)
+                    dpg.add_drag_doublex(width=width, speed=0.1, tag=f'__fr_ctrl_panel_mesh_trans', size=3, callback=self._render, min_value=-1000.0, max_value=1000.0)
+                    dpg.add_text(' Position')
+                with dpg.group(horizontal=True, horizontal_spacing=0):
+                    dpg.add_drag_doublex(width=width, speed=0.1, tag=f'__fr_ctrl_panel_mesh_rot', size=3, callback=self._render, min_value=-np.pi*2, max_value=np.pi*2)
+                    dpg.add_text(' Rotation')
+                with dpg.group(horizontal=True, horizontal_spacing=0):
+                    dpg.add_drag_double(width=width, speed=0.01, tag=f'__fr_ctrl_panel_mesh_scale', default_value=1.0, callback=self._render)
+                    dpg.add_text(' Scale')
+                
+                with dpg.collapsing_header(label='Utils', default_open=True):
+                    dpg.add_button(label='Center', callback=self.center_mesh, width=width)
+                    dpg.add_button(label='Scale', callback=self.scale_mesh, width=width)
 
-                dpg.add_drag_float(label='Sensitivity', width=width, default_value=0.01, speed=0.0005, min_value=0.0, max_value=0.1, tag='__fr_ctrl_panel_sensitivity')
-                dpg.add_button(label='Print Centroid', callback=self.print_centroid, width=width)
-                dpg.add_button(label='Reset', callback=self.reset_mesh, width=width)
+                
+                    dpg.add_button(label='Reset', callback=self.reset_mesh, width=width)
             with dpg.collapsing_header(label='Camera', default_open=True):
-                dpg.add_button(label='Reset Pose', callback=self.reset_pose, width=width)
-                dpg.add_combo(['persp', 'orth'], label='Type', default_value='persp', width=width, callback=lambda s, a: self.set_camera(a))
+                
                 def look_at_centroid():
                     center = (self.mesh._primitives[0].bounds[1] + self.mesh._primitives[0].bounds[0])/2
                     camera_pos = self.trackball._n_pose[:3, 3]
@@ -225,7 +200,7 @@ class FaceRenderer:
                     self.trackball._n_pose = matrix
                     self._render()
                     return 
-                dpg.add_button(label='LookAt', callback=look_at_centroid, width=width)
+                
                 dpg.add_combo(['ROTATE', 'ZOOM', 'PAN', 'ROLL'], label='Mode', default_value='ROTATE', width=width, 
                 callback=lambda s, a: self.set_mode(a))
                 def _set_n_pose(s, a, u):
@@ -233,7 +208,9 @@ class FaceRenderer:
                     self._render()
                 for i in range(4):
                     dpg.add_drag_floatx(tag=f'__fr_ctrl_panel_camera_pose_row_{i}', width=width, speed=0.05, min_value=-100.0, max_value=100.0, size=4, callback=_set_n_pose, user_data=i)
-            with dpg.collapsing_header(label='Light0', default_open=True):
+                dpg.add_button(label='LookAt', callback=look_at_centroid, width=width)
+                dpg.add_button(label='Reset', callback=self.reset_pose, width=width, )
+            with dpg.collapsing_header(label='Light', default_open=True):
                 dpg.add_drag_float(label='Intensity', callback=lambda s, a: self.set_light_intensity(a), width=width, default_value=30)
                 dpg.add_color_edit(default_value=(0, int(255*0.45), int(255*0.55)), label='Color', callback=lambda s, a: self.set_light_color((a[0:3])), )
             with dpg.collapsing_header(label='Visualization', default_open=True):
@@ -306,8 +283,15 @@ class FaceRenderer:
 
     def _render(self):
         """Trigger a re-render event"""
+        
         pose = self.trackball.pose.copy()
         self._camera_node.matrix = pose
+        # import code
+        # code.interact(local=locals())
+        self.mesh_node.translation = dpg.get_value('__fr_ctrl_panel_mesh_trans')[:3]
+        self.mesh_node.rotation = rot2quat(*dpg.get_value('__fr_ctrl_panel_mesh_rot')[:3])
+        self.mesh_node.scale = [dpg.get_value('__fr_ctrl_panel_mesh_scale')]*3
+        
         # self._light_node.matrix = pose
         flags = RenderFlags.NONE
         if dpg.get_value('__fr_ctrl_panel_wireframe'):
@@ -333,8 +317,10 @@ class FaceRenderer:
 
         for i in range(4):
             dpg.set_value(f'__fr_ctrl_panel_camera_pose_row_{i}', pose[i, :].astype(np.float32))
-
+        # center = (self.mesh._primitives[0].bounds[0] + self.mesh._primitives[0].bounds[1])/2
+        # dpg.set_value(f'__fr_ctrl_panel_trans', center.astype(np.float32))
         return color, depth
+
 
     def print_pose(self):
         logger.info(self.trackball.pose)

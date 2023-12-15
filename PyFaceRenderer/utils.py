@@ -23,3 +23,21 @@ def lookat(eye, target, up):
     mx = normalize( np.cross( up, mz ) )
     my = normalize( np.cross( mz, mx ) )
     return np.array([[mx[0], my[0], mz[0], 0], [mx[1], my[1], mz[1], 0], [mx[2], my[2], mz[2], 0], [*eye, 1]]).T
+
+def rot2quat(roll, pitch, yaw):
+  """
+  Convert an Euler angle to a quaternion.
+   
+  Input
+    :param roll: The roll (rotation around x-axis) angle in radians.
+    :param pitch: The pitch (rotation around y-axis) angle in radians.
+    :param yaw: The yaw (rotation around z-axis) angle in radians.
+ 
+  Output
+    :return qx, qy, qz, qw: The orientation in quaternion [x,y,z,w] format
+  """
+  qx = np.sin(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) - np.cos(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
+  qy = np.cos(roll/2) * np.sin(pitch/2) * np.cos(yaw/2) + np.sin(roll/2) * np.cos(pitch/2) * np.sin(yaw/2)
+  qz = np.cos(roll/2) * np.cos(pitch/2) * np.sin(yaw/2) - np.sin(roll/2) * np.sin(pitch/2) * np.cos(yaw/2)
+  qw = np.cos(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) + np.sin(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
+  return [qx, qy, qz, qw]
