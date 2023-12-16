@@ -15,6 +15,7 @@ from PIL import Image
 from typing import Optional
 from pathlib import Path
 from .blendshape_model import ARKitModel
+from omegaconf import OmegaConf
 
 logger = log.getLogger('PyRenderer')
 
@@ -249,7 +250,31 @@ class FaceRenderer:
 
                     dpg.add_button(label='Reset', callback=reset_blendshapes, width=width, user_data=blendshape_ids)
 
-            dpg.add_button(label='Render', callback=self._render, width=width)
+            with dpg.collapsing_header(label='IO', default_open=True):
+                param_names = ['__fr_ctrl_panel_mesh_trans', '__fr_ctrl_panel_mesh_rot', '__fr_ctrl_panel_mesh_scale', ]
+                for i in range(4):
+                    param_names.append(f'__fr_ctrl_panel_camera_pose_row_{i}')
+                def export_config():
+                    params = {p: dpg.get_value(p) for p in param_names}
+                    np.save('face_renderer_config.npy', params)
+                    log.info('Exported Config')
+                    return 
+                
+                def import_config():
+                    if Path('face_renderer_config.npy').exists():
+                        conf = np.load('face_renderer_config.npy', allow_pickle=True).item()
+                        for param_name, value in conf.items():            
+                            dpg.set_value(param_name, value)
+                        for i in range(4):
+                            _set_n_pose(None, conf[f'__fr_ctrl_panel_camera_pose_row_{i}'], i)
+                        log.info('Imported Config')
+                        self._render()
+                    else:
+                        log.error('Config file not found')
+                    
+                dpg.add_button(label='Export', callback=export_config, width=width)
+                dpg.add_button(label='Import', callback=import_config, width=width)
+            dpg.add_button(label='Render', callback=self._render, width=2*width)
             pass
         self._render()
 
