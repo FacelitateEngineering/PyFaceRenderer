@@ -229,7 +229,7 @@ class FaceRenderer:
                     if u is None:
                         self._coe[:] = 0.0
                     else:
-                        self._coe[u] = np.clip(a, 0.0, 1.0)
+                        self._coe[u] = np.clip(a, -1.0, 1.0)
                     vertices = self.blendshape_model.get_mesh(self._coe).copy()
                     self.update_mesh(vertices, update_normal=False)
                     self._render()
@@ -237,10 +237,8 @@ class FaceRenderer:
                 with dpg.collapsing_header(label='Blendshapes', default_open=False):
                     blendshape_ids = []
                     for i in range(self.blendshape_model.n_blendshapes):
-                        with dpg.group(horizontal=True, horizontal_spacing=0):
-                            id = dpg.add_drag_float(default_value=0.0, min_value=0.0, max_value=1.0, speed=0.01, clamped=True, callback=_update_blendshape, width=width, user_data=i)
-                            blendshape_ids.append(id)
-                            dpg.add_text(str(self.blendshape_model.blendshape_names[i]), )
+                        _id = dpg.add_drag_float(default_value=0.0, min_value=-1.0, max_value=1.0, speed=0.01, clamped=True, callback=_update_blendshape, width=width, user_data=i, label=str(self.blendshape_model.blendshape_names[i]))
+                        blendshape_ids.append(_id)
                     def reset_blendshapes(s, a, u):
                         for _id in u:
                             dpg.set_value(_id, 0.0)
