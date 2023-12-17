@@ -16,6 +16,7 @@ from typing import Optional
 from pathlib import Path
 from .blendshape_model import ARKitModel
 from omegaconf import OmegaConf
+from datetime import datetime
 
 logger = log.getLogger('PyRenderer')
 
@@ -50,7 +51,7 @@ class FaceRenderer:
             mesh_path = Path(mesh)
             assert mesh_path.exists(), mesh_path
             self.trimesh = trimesh.load(str(mesh))
-            self.mesh = pyrender.Mesh.from_trimesh(self.trimesh)
+            self.mesh = pyrender.Mesh.from_trimesh(self.trimesh, )
         else:
             raise NotImplementedError(f'Unrecognized mesh or topology: {mesh}')
         
@@ -111,7 +112,7 @@ class FaceRenderer:
             )
         else:
             self.camera = OrthographicCamera(
-                xmag=1.0, ymag=1.0,
+                xmag=0.5, ymag=0.5,
                 znear=0.01,
                 zfar=1000000.0,
             )
@@ -245,7 +246,7 @@ class FaceRenderer:
                             dpg.set_value(_id, 0.0)
                         self._coe[:] = 0.0
                         vertices = self.blendshape_model.get_mesh(self._coe).copy()
-                        self.update_mesh(vertices, update_normal=False)
+                        self.update_mesh(vertices, update_normal=True)
                         self._render()
 
                     dpg.add_button(label='Reset', callback=reset_blendshapes, width=width, user_data=blendshape_ids)
@@ -254,6 +255,7 @@ class FaceRenderer:
                 param_names = ['__fr_ctrl_panel_mesh_trans', '__fr_ctrl_panel_mesh_rot', '__fr_ctrl_panel_mesh_scale', ]
                 for i in range(4):
                     param_names.append(f'__fr_ctrl_panel_camera_pose_row_{i}')
+                    
                 def export_config():
                     params = {p: dpg.get_value(p) for p in param_names}
                     np.save('face_renderer_config.npy', params)
@@ -271,9 +273,19 @@ class FaceRenderer:
                         self._render()
                     else:
                         log.error('Config file not found')
-                    
+                def screenshot():
+                    self._update_texture = False
+                    color, depth = self._render()
+                    self._update_texture = True
+                    Path('Screenshots').mkdir(exist_ok=True)
+                    filename = datetime.now().strftime('Screenshots/Screenshot_%Y%m%d_%H%M%S.png')
+                    Image.fromarray(color).save(filename)
+                    log.info(f'Saved screenshot to {filename}')
+                    return    
                 dpg.add_button(label='Export', callback=export_config, width=width)
                 dpg.add_button(label='Import', callback=import_config, width=width)
+                
+                dpg.add_button(label='Screenshot', callback=screenshot, width=width)
             dpg.add_button(label='Render', callback=self._render, width=2*width)
             pass
         self._render()
@@ -329,6 +341,7 @@ class FaceRenderer:
     def _render(self):
         """Trigger a re-render event"""
         if self._is_rendering:
+            log.debug('Dropping frame')
             return 
         self._is_rendering = True
         pose = self.trackball.pose.copy()
@@ -337,7 +350,6 @@ class FaceRenderer:
         self.mesh_node.rotation = rot2quat(*dpg.get_value('__fr_ctrl_panel_mesh_rot')[:3])
         self.mesh_node.scale = [dpg.get_value('__fr_ctrl_panel_mesh_scale')]*3
         
-        # self._light_node.matrix = pose
         flags = RenderFlags.NONE
         if dpg.get_value('__fr_ctrl_panel_wireframe'):
             flags |= RenderFlags.FLIP_WIREFRAME

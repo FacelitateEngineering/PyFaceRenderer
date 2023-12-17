@@ -23,7 +23,6 @@ class BlendshapeModel:
             coe[0] = 1.0 # neutral
         assert len(coe.shape) == 1, coe.shape
         assert len(coe) == self.n_blendshapes, "Number of blendshapes must match number of coefficients"
-        print(coe.mean())
         out = np.sum(coe[..., None, None] * self.blendshapes, axis=0) + self.neutral_position
         return out
 

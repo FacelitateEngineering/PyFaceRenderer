@@ -6,9 +6,6 @@ import cv2
 import code
 import numpy as np
 
-
-
-
 log.basicConfig(level='DEBUG')
 dpg.create_context()
 dpg.configure_app(docking=True, docking_space=True, )
@@ -20,4 +17,4 @@ fr._render()
 
 dpg.setup_dearpygui()
 dpg.show_viewport()
-dpg.start_dearpygui()   
+dpg.start_dearpygui()
