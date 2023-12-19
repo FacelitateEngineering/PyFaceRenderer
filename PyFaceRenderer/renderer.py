@@ -237,7 +237,7 @@ class FaceRenderer:
                 with dpg.collapsing_header(label='Blendshapes', default_open=False):
                     blendshape_ids = []
                     for i in range(self.blendshape_model.n_blendshapes):
-                        _id = dpg.add_drag_float(default_value=0.0, min_value=-1.0, max_value=1.0, speed=0.01, clamped=True, callback=_update_blendshape, width=width, user_data=i, label=str(self.blendshape_model.blendshape_names[i]))
+                        _id = dpg.add_drag_float(default_value=0.0, min_value=-1.0, max_value=1.0, speed=0.01, clamped=True, callback=_update_blendshape, width=width, user_data=i, label=f'{str(self.blendshape_model.blendshape_names[i])}_drag')
                         blendshape_ids.append(_id)
                     def reset_blendshapes(s, a, u):
                         for _id in u:
