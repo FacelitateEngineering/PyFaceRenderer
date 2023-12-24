@@ -185,9 +185,11 @@ class FaceRenderer:
                     dpg.add_drag_doublex(width=width, speed=0.1, tag=f'__fr_ctrl_panel_mesh_rot', size=3, callback=self._render, min_value=-np.pi*2, max_value=np.pi*2)
                     dpg.add_text(' Rotation')
                 with dpg.group(horizontal=True, horizontal_spacing=0):
-                    dpg.add_drag_double(width=width, speed=0.01, tag=f'__fr_ctrl_panel_mesh_scale', default_value=1.0, callback=self._render)
+                    dpg.add_drag_double(width=width, speed=0.0001, tag=f'__fr_ctrl_panel_mesh_scale', default_value=1.0, callback=self._render)
                     dpg.add_text(' Scale')
-                
+                with dpg.group(horizontal=True, horizontal_spacing=0):
+                    dpg.add_drag_double(width=width, speed=1.0, tag=f'__fr_ctrl_panel_mesh_test_move', default_value=0.0,  callback=self._render, max_value=100000.0)
+                    dpg.add_text(' Test Move')
                 with dpg.collapsing_header(label='Utils', default_open=True):
                     dpg.add_button(label='Center', callback=self.center_mesh, width=width)
                     dpg.add_button(label='Scale', callback=self.scale_mesh, width=width)
@@ -230,8 +232,9 @@ class FaceRenderer:
                         self._coe[:] = 0.0
                     else:
                         self._coe[u] = np.clip(a, -1.0, 1.0)
-                    vertices = self.blendshape_model.get_mesh(self._coe).copy()
-                    self.update_mesh(vertices, update_normal=False)
+                    # vertices = self.blendshape_model.get_mesh(self._coe).copy()
+                    # self.update_mesh(vertices, update_normal=False)
+                    self.mesh.primitives[0].coes_0 = self._coe
                     self._render()
                     
                 with dpg.collapsing_header(label='Blendshapes', default_open=False):
@@ -243,8 +246,7 @@ class FaceRenderer:
                         for _id in u:
                             dpg.set_value(_id, 0.0)
                         self._coe[:] = 0.0
-                        vertices = self.blendshape_model.get_mesh(self._coe).copy()
-                        self.update_mesh(vertices, update_normal=True)
+                        self.mesh.primitives[0].coes_0[:] = 0.0
                         self._render()
 
                     dpg.add_button(label='Reset', callback=reset_blendshapes, width=width, user_data=blendshape_ids)
@@ -347,6 +349,7 @@ class FaceRenderer:
         self.mesh_node.translation = dpg.get_value('__fr_ctrl_panel_mesh_trans')[:3]
         self.mesh_node.rotation = rot2quat(*dpg.get_value('__fr_ctrl_panel_mesh_rot')[:3])
         self.mesh_node.scale = [dpg.get_value('__fr_ctrl_panel_mesh_scale')]*3
+        self.mesh.primitives[0].test_move = dpg.get_value('__fr_ctrl_panel_mesh_test_move')
         
         flags = RenderFlags.NONE
         if dpg.get_value('__fr_ctrl_panel_wireframe'):
