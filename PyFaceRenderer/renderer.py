@@ -26,7 +26,7 @@ class FaceRenderer:
     fr_window:Optional[int] = None
     ctrl_window = None
 
-    def __init__(self, mesh: Union[pyrender.Mesh, str], height=1280, width=720, default_camera_pose=None, background_image:Optional[np.ndarray]=None) -> None:
+    def __init__(self, mesh: Union[pyrender.Mesh, str], height=640, width=360, default_camera_pose=None, background_image:Optional[np.ndarray]=None) -> None:
         self._height = height
         self._width = width
         self.mesh_type = 'static'
@@ -225,14 +225,16 @@ class FaceRenderer:
                     if u is None:
                         self._coe[:] = 0.0
                     else:
-                        self._coe[u] = np.clip(a, -1.0, 1.0)
+                        self._coe[u] = np.clip(a, 0.0, 1.0)
                     self.mesh.primitives[0].coes_0 = self._coe
                     self._render()
                     
                 with dpg.collapsing_header(label='Blendshapes', default_open=False):
                     blendshape_ids = []
                     for i in range(self.blendshape_model.n_blendshapes):
-                        _id = dpg.add_drag_float(default_value=0.0, min_value=-1.0, max_value=1.0, speed=0.01, clamped=True, callback=_update_blendshape, width=width, user_data=i, label=f'{str(self.blendshape_model.blendshape_names[i])}_drag')
+                        _id = dpg.add_drag_float(default_value=0.0, min_value=0.0, max_value=1.0, speed=0.01, clamped=True, callback=_update_blendshape, 
+                                                 width=width, user_data=i, label=f'{str(self.blendshape_model.blendshape_names[i])}', 
+                                                 tag=f'{str(self.blendshape_model.blendshape_names[i])}_drag')
                         blendshape_ids.append(_id)
                     def reset_blendshapes(s, a, u):
                         for _id in u:
