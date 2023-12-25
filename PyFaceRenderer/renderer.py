@@ -15,8 +15,10 @@ from PIL import Image
 from typing import Optional
 from pathlib import Path
 from .blendshape_model import ARKitModel
-from omegaconf import OmegaConf
 from datetime import datetime
+from tqdm import tqdm
+import pickle
+import shutil
 
 logger = log.getLogger('PyRenderer')
 
@@ -24,13 +26,12 @@ class FaceRenderer:
     fr_window:Optional[int] = None
     ctrl_window = None
 
-
-    def __init__(self, mesh: Union[pyrender.Mesh, str], height=640, width=360, default_camera_pose=None, background_image:Optional[np.ndarray]=None) -> None:
+    def __init__(self, mesh: Union[pyrender.Mesh, str], height=1280, width=720, default_camera_pose=None, background_image:Optional[np.ndarray]=None) -> None:
         self._height = height
         self._width = width
         self.mesh_type = 'static'
         with dpg.texture_registry(show=False):
-            self.__texture_id = dpg.add_dynamic_texture(width, height, np.ones((height, width, 4), dtype=np.uint8)*200, tag='__face_renderer_texture_tag')        
+            self.__texture_id = dpg.add_dynamic_texture(width, height, np.ones((height, width, 4), dtype=np.uint8)*255, tag='__face_renderer_texture_tag')        
         if isinstance(mesh, pyrender.Mesh):
             self.mesh = mesh
         elif isinstance(mesh, trimesh.Trimesh):
@@ -61,8 +62,6 @@ class FaceRenderer:
         
         self.mesh_node = Node(mesh=self.mesh, )
         self.scene.add_node(self.mesh_node)
-        
-        
 
         if default_camera_pose is None:
             default_camera_pose = np.eye(4)
@@ -187,14 +186,9 @@ class FaceRenderer:
                 with dpg.group(horizontal=True, horizontal_spacing=0):
                     dpg.add_drag_double(width=width, speed=0.0001, tag=f'__fr_ctrl_panel_mesh_scale', default_value=1.0, callback=self._render)
                     dpg.add_text(' Scale')
-                with dpg.group(horizontal=True, horizontal_spacing=0):
-                    dpg.add_drag_double(width=width, speed=1.0, tag=f'__fr_ctrl_panel_mesh_test_move', default_value=0.0,  callback=self._render, max_value=100000.0)
-                    dpg.add_text(' Test Move')
                 with dpg.collapsing_header(label='Utils', default_open=True):
                     dpg.add_button(label='Center', callback=self.center_mesh, width=width)
                     dpg.add_button(label='Scale', callback=self.scale_mesh, width=width)
-
-                
                     dpg.add_button(label='Reset', callback=self.reset_mesh, width=width)
             with dpg.collapsing_header(label='Camera', default_open=False):    
                 def look_at_centroid():
@@ -284,6 +278,7 @@ class FaceRenderer:
                 dpg.add_button(label='Import', callback=import_config, width=width)
                 
                 dpg.add_button(label='Screenshot', callback=screenshot, width=width)
+                dpg.add_button(label='Render Animation', callback=lambda: self.render_animation(), width=width)
             dpg.add_button(label='Render', callback=self._render, width=2*width)
             pass
         self._render()
@@ -335,6 +330,40 @@ class FaceRenderer:
         upload_vertex_data(self.mesh.primitives[0])
         logger.info('Updated Mesh from vertex array')
 
+    def render_animation(self, animation_file: Path, show_rendering:bool=False, output_filename: Path=None):        
+        
+        self._update_texture = show_rendering
+        with open(animation_file,'rb') as f:
+            animation_frames = pickle.load(f)
+        if output_filename is None:
+            output_filename = datetime.now().strftime(f'Screenshots/{animation_file.stem}_rendered_%Y%m%d_%H%M%S.mp4')
+
+        log.info(f'Rendering animation: {len(animation_frames)} frames from {animation_file} -> {output_filename}')
+        screenshot = Path('Screenshots')
+        
+        tmp_folder = screenshot / 'tmp'
+        if tmp_folder.exists():
+            shutil.rmtree(tmp_folder) # remove all existing caches
+        tmp_folder.mkdir(parents=True)
+
+        
+        
+        for i, animation in tqdm(enumerate(animation_frames['data'])):
+            if 'blendshapes' in animation:
+                blendshapes = np.array(animation['blendshapes'])
+                if blendshapes.shape != self.mesh.primitives[0].coes_0.shape:
+                    logger.error(f'Shape mismatch: {blendshapes.shape} != {self.mesh.primitives[0].coes_0.shape}')
+                else:
+                    self.mesh.primitives[0].coes_0 = blendshapes
+            color, depth = self._render()
+            Image.fromarray(color).save(f'Screenshots/tmp/{animation_file.stem}{i:04d}.png')
+        
+        fps = animation_frames['metadata']['fps']
+        command = f"ffmpeg -framerate {fps} -pattern_type glob -i 'Screenshots/tmp/*.png' -c:v libx264 -pix_fmt yuv420p {output_filename}"
+        log.info(f'Running command: {command}')
+        self._update_texture = True
+        return 
+
 
     def _render(self):
         """Trigger a re-render event"""
@@ -347,7 +376,7 @@ class FaceRenderer:
         self.mesh_node.translation = dpg.get_value('__fr_ctrl_panel_mesh_trans')[:3]
         self.mesh_node.rotation = rot2quat(*dpg.get_value('__fr_ctrl_panel_mesh_rot')[:3])
         self.mesh_node.scale = [dpg.get_value('__fr_ctrl_panel_mesh_scale')]*3
-        self.mesh.primitives[0].test_move = dpg.get_value('__fr_ctrl_panel_mesh_test_move')
+        
         
         flags = RenderFlags.NONE
         if dpg.get_value('__fr_ctrl_panel_wireframe'):
