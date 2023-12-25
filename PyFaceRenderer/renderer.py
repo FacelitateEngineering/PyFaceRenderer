@@ -232,8 +232,6 @@ class FaceRenderer:
                         self._coe[:] = 0.0
                     else:
                         self._coe[u] = np.clip(a, -1.0, 1.0)
-                    # vertices = self.blendshape_model.get_mesh(self._coe).copy()
-                    # self.update_mesh(vertices, update_normal=False)
                     self.mesh.primitives[0].coes_0 = self._coe
                     self._render()
                     
