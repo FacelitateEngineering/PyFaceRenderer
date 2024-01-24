@@ -1,3 +1,6 @@
+import os
+import platform
+import subprocess
 from typing import Union
 import dearpygui.dearpygui as dpg
 import numpy as np
@@ -267,6 +270,9 @@ class FaceRenderer:
                         self._render()
                     else:
                         log.error('Config file not found')
+                dpg.add_button(label='Export', callback=export_config, width=width)
+                dpg.add_button(label='Import', callback=import_config, width=width)
+
                 def screenshot():
                     self._update_texture = False
                     color, depth = self._render()
@@ -276,11 +282,14 @@ class FaceRenderer:
                     Image.fromarray(color).save(filename)
                     log.info(f'Saved screenshot to {filename}')
                     return    
-                dpg.add_button(label='Export', callback=export_config, width=width)
-                dpg.add_button(label='Import', callback=import_config, width=width)
                 
+            with dpg.collapsing_header(label='Render', default_open=True):
                 dpg.add_button(label='Screenshot', callback=screenshot, width=width)
+                dpg.add_input_text(label='Animation File', default_value='data/mediapipe.pkl', width=width, tag='__fr_ctrl_panel_animation_file')
                 dpg.add_button(label='Render Animation', callback=lambda: self.render_animation(), width=width)
+                
+            
+            dpg.add_separator()
             dpg.add_button(label='Render', callback=self._render, width=2*width)
             pass
         self._render()
@@ -332,37 +341,49 @@ class FaceRenderer:
         upload_vertex_data(self.mesh.primitives[0])
         logger.info('Updated Mesh from vertex array')
 
-    def render_animation(self, animation_file: Path, show_rendering:bool=False, output_filename: Path=None):        
-        
+    def render_animation(self, show_rendering:bool=True, ):
+        animation_file = Path(dpg.get_value('__fr_ctrl_panel_animation_file'))
         self._update_texture = show_rendering
         with open(animation_file,'rb') as f:
             animation_frames = pickle.load(f)
-        if output_filename is None:
-            output_filename = datetime.now().strftime(f'Screenshots/{animation_file.stem}_rendered_%Y%m%d_%H%M%S.mp4')
+        output_filename = datetime.now().strftime(f'Screenshots/{animation_file.stem}_rendered_%Y%m%d_%H%M%S.mp4')
 
         log.info(f'Rendering animation: {len(animation_frames)} frames from {animation_file} -> {output_filename}')
         screenshot = Path('Screenshots')
-        
         tmp_folder = screenshot / 'tmp'
         if tmp_folder.exists():
             shutil.rmtree(tmp_folder) # remove all existing caches
         tmp_folder.mkdir(parents=True)
 
-        
-        
-        for i, animation in tqdm(enumerate(animation_frames['data'])):
+        self.mesh.primitives[0].coes_0[:] = 0.0
+        for i, animation in tqdm(enumerate(animation_frames['data']), total=len(animation_frames['data'])):
             if 'blendshapes' in animation:
-                blendshapes = np.array(animation['blendshapes'])
-                if blendshapes.shape != self.mesh.primitives[0].coes_0.shape:
-                    logger.error(f'Shape mismatch: {blendshapes.shape} != {self.mesh.primitives[0].coes_0.shape}')
-                else:
-                    self.mesh.primitives[0].coes_0 = blendshapes
+                a:dict = animation['blendshapes']
+                for blendshape_name, value in a.items():
+                    if blendshape_name in self.blendshape_model.blendshape_names:
+                        idx = self.blendshape_model.blendshape_names.index(blendshape_name)
+                        self.mesh.primitives[0].coes_0[idx] = value
+                    else:
+                        logger.warning(f'[{i}] Blendshape {blendshape_name} not found in model ({value})')
             color, depth = self._render()
             Image.fromarray(color).save(f'Screenshots/tmp/{animation_file.stem}{i:04d}.png')
         
         fps = animation_frames['metadata']['fps']
-        command = f"ffmpeg -framerate {fps} -pattern_type glob -i 'Screenshots/tmp/*.png' -c:v libx264 -pix_fmt yuv420p {output_filename}"
-        log.info(f'Running command: {command}')
+        if 'audio' in animation_frames['metadata'] and Path(animation_frames['metadata']['audio']).exists(): # attach the audio file
+            audio_file_path = animation_frames['metadata']['audio']
+            command = f"ffmpeg -framerate {fps} -pattern_type glob -i 'Screenshots/tmp/*.png' -i {audio_file_path}  -map 0:v -map 1:a -c:v libx264 -pix_fmt yuv420p {output_filename}"
+        else:
+            command = f"ffmpeg -framerate {fps} -pattern_type glob -i 'Screenshots/tmp/*.png' -c:v libx264 -pix_fmt yuv420p {output_filename}"
+        
+        p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,universal_newlines=True, shell=True)
+        p.wait()
+        _platform = platform.system().lower()
+        if _platform == "windows":
+            os.startfile(output_filename)
+        elif _platform == "darwin":
+            subprocess.Popen(["open", output_filename])
+        else:
+            subprocess.Popen(["xdg-open", output_filename])
         self._update_texture = True
         return 
 
