@@ -12,3 +12,25 @@ This doesn't do much beside letting you visualize your face recognition result.
 This repository uses a fork of pyrender which operates on the blendshape on GLSL shader for slightly faster interactive manipulation. 
 
 To install follow the instruction [here](https://github.com/FacelitateEngineering/pyrender)
+
+
+### Animation Format
+Animation are simply dictionaries stored as a pickle file.
+```python
+animation =
+{
+    'data': [
+        {'blendshapes': 
+            {
+                blendshape_1: value, 
+                blendshape_2: value, 
+                ...
+            }
+        }
+        ]
+    'metadata': {
+        'fps': 30, 
+        'audio': 'path_to_audio_file'
+        }
+}
+```
