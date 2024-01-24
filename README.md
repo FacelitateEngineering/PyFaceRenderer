@@ -9,9 +9,9 @@ This doesn't do much beside letting you visualize your face recognition result.
 
 
 ### Install
-This repository uses a fork of pyrender which operates on the blendshape on GLSL shader for slightly faster interactive manipulation. 
-
-To install follow the instruction [here](https://github.com/FacelitateEngineering/pyrender)
+This repository uses [a fork of pyrender]((https://github.com/FacelitateEngineering/pyrender)) which computes vertex for linear blendshape on GLSL shader for slightly faster interactive manipulation. 
+<!-- To install follow the instruction [here] -->
+It would be installed via requirement.txt. 
 
 
 ### Animation Format

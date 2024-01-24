@@ -1,4 +1,4 @@
-pyrender
+pyrender @ git+https://github.com/FacelitateEngineering/pyrender@master
 dearpygui
 mediapipe
 opencv-python
