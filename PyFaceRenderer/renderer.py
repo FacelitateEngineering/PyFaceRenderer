@@ -341,9 +341,9 @@ class FaceRenderer:
         upload_vertex_data(self.mesh.primitives[0])
         logger.info('Updated Mesh from vertex array')
 
-    def render_animation(self, show_rendering:bool=True, ):
+    def render_animation(self, ):
         animation_file = Path(dpg.get_value('__fr_ctrl_panel_animation_file'))
-        self._update_texture = show_rendering
+        self._update_texture = False
         with open(animation_file,'rb') as f:
             animation_frames = pickle.load(f)
         output_filename = datetime.now().strftime(f'Screenshots/{animation_file.stem}_rendered_%Y%m%d_%H%M%S.mp4')
@@ -366,7 +366,7 @@ class FaceRenderer:
                     else:
                         logger.warning(f'[{i}] Blendshape {blendshape_name} not found in model ({value})')
             color, depth = self._render()
-            Image.fromarray(color).save(f'Screenshots/tmp/{animation_file.stem}{i:04d}.png')
+            Image.fromarray(color).save(f'Screenshots/tmp/{animation_file.stem}{i:07d}.png')
         
         fps = animation_frames['metadata']['fps']
         if 'audio' in animation_frames['metadata'] and Path(animation_frames['metadata']['audio']).exists(): # attach the audio file
@@ -421,7 +421,7 @@ class FaceRenderer:
 
             texture_data = numpy2texture_data(color, bgr=False)
             dpg.set_value('__face_renderer_texture_tag', texture_data)
-            logger.debug('Updated image')
+            # logger.debug('Updated image')
 
         for i in range(4):
             dpg.set_value(f'__fr_ctrl_panel_camera_pose_row_{i}', pose[i, :].astype(np.float32))
