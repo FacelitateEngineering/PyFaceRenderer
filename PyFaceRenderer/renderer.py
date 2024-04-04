@@ -51,6 +51,10 @@ class FaceRenderer:
             self.trimesh = self.blendshape_model.trimesh
             self.mesh = self.blendshape_model.neutral_mesh
             self.mesh_type = 'blendshape'
+        elif mesh == 'flame':
+            model = pickle.load(open('data/models/flame/generic_model_converted.pkl', 'rb'))
+            self.trimesh = trimesh.Trimesh(model['v_template'], model['f'])
+            self.mesh = pyrender.Mesh.from_trimesh(self.trimesh)
         elif isinstance(mesh, (str, Path)):
             mesh_path = Path(mesh)
             assert mesh_path.exists(), mesh_path
@@ -343,19 +347,24 @@ class FaceRenderer:
 
     def render_animation(self, ):
         animation_file = Path(dpg.get_value('__fr_ctrl_panel_animation_file'))
+        if not animation_file.exists():
+            log.error(f'Animation file not found: {animation_file}')
+            return
         self._update_texture = False
-        with open(animation_file,'rb') as f:
-            animation_frames = pickle.load(f)
         output_filename = datetime.now().strftime(f'Screenshots/{animation_file.stem}_rendered_%Y%m%d_%H%M%S.mp4')
-
-        log.info(f'Rendering animation: {len(animation_frames)} frames from {animation_file} -> {output_filename}')
+        
         screenshot = Path('Screenshots')
         tmp_folder = screenshot / 'tmp'
         if tmp_folder.exists():
             shutil.rmtree(tmp_folder) # remove all existing caches
         tmp_folder.mkdir(parents=True)
 
-        self.mesh.primitives[0].coes_0[:] = 0.0
+        with open(animation_file,'rb') as f:
+            animation_frames = pickle.load(f)
+        log.info(f'Rendering animation: {len(animation_frames["data"])} frames from {animation_file} -> {output_filename}')
+        if hasattr(self.mesh.primitives[0], 'coes_0') and self.mesh.primitives[0].coes_0 is not None:
+            self.mesh.primitives[0].coes_0[:] = 0.0
+        
         for i, animation in tqdm(enumerate(animation_frames['data']), total=len(animation_frames['data'])):
             if 'blendshapes' in animation:
                 a:dict = animation['blendshapes']
@@ -365,12 +374,18 @@ class FaceRenderer:
                         self.mesh.primitives[0].coes_0[idx] = value
                     else:
                         logger.warning(f'[{i}] Blendshape {blendshape_name} not found in model ({value})')
+            if 'vertex' in animation:
+                self.update_mesh(animation['vertex'], update_normal=False)
             color, depth = self._render()
             Image.fromarray(color).save(f'Screenshots/tmp/{animation_file.stem}{i:07d}.png')
         
         fps = animation_frames['metadata']['fps']
         if 'audio' in animation_frames['metadata'] and Path(animation_frames['metadata']['audio']).exists(): # attach the audio file
             audio_file_path = animation_frames['metadata']['audio']
+            import librosa
+            sample, sr =  librosa.load(audio_file_path)
+            duration = sample.shape[-1]/sr
+            fps = len(animation_frames['data'])/duration
             command = f"ffmpeg -framerate {fps} -pattern_type glob -i 'Screenshots/tmp/*.png' -i {audio_file_path}  -map 0:v -map 1:a -c:v libx264 -pix_fmt yuv420p {output_filename}"
         else:
             command = f"ffmpeg -framerate {fps} -pattern_type glob -i 'Screenshots/tmp/*.png' -c:v libx264 -pix_fmt yuv420p {output_filename}"
@@ -384,6 +399,7 @@ class FaceRenderer:
             subprocess.Popen(["open", output_filename])
         else:
             subprocess.Popen(["xdg-open", output_filename])
+
         self._update_texture = True
         return 
 
