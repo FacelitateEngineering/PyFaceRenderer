@@ -1,10 +1,6 @@
 import dearpygui.dearpygui as dpg
 from PyFaceRenderer import FaceRenderer
 import logging as log
-import mediapipe as mp
-import cv2
-import code
-import numpy as np
 
 log.basicConfig(level='ERROR')
 dpg.create_context()
