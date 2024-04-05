@@ -351,6 +351,15 @@ class FaceRenderer:
             log.error(f'Animation file not found: {animation_file}')
             return
         self._update_texture = False
+        if animation_file.is_dir():
+            animation_files = list(animation_file.glob('*.pkl'))
+        elif animation_file.suffix == '.pkl':
+            animation_files = [animation_file]
+        for animation_file in tqdm(animation_files):
+            self.render_animation_from_pkl(animation_file)
+            
+    
+    def render_animation_from_pkl(self, animation_file:Path):
         output_filename = datetime.now().strftime(f'Screenshots/{animation_file.stem}_rendered_%Y%m%d_%H%M%S.mp4')
         
         screenshot = Path('Screenshots')
