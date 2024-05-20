@@ -40,6 +40,8 @@ class ARKitModel(BlendshapeModel):
             bs_names = f.read().split('\n')
         super().__init__(neutral_mesh, blendshapes, bs_names)
 
+
+
 if __name__ == "__main__":
     arkit = ARKitModel()
     import code

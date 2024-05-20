@@ -1,7 +1,7 @@
 import os
 import platform
 import subprocess
-from typing import Union
+from typing import List, Union
 import dearpygui.dearpygui as dpg
 import numpy as np
 from pyrender.trackball import Trackball
@@ -180,8 +180,6 @@ class FaceRenderer:
         self.trackball.set_state(Trackball.STATE_ROTATE)
         width = 200
         
-
-        
         with dpg.window(label='FR Control panel', show=show_control, tag='_face_renderer_ctrl_window', pos=(self._width, 0), height=self._height, width=2*width) as self.ctrl_window:
             with dpg.collapsing_header(label='Mesh', default_open=True):
                 with dpg.group(horizontal=True, horizontal_spacing=0):
@@ -350,14 +348,62 @@ class FaceRenderer:
         if not animation_file.exists():
             log.error(f'Animation file not found: {animation_file}')
             return
-        self._update_texture = False
-        if animation_file.is_dir():
-            animation_files = list(animation_file.glob('*.pkl'))
-        elif animation_file.suffix == '.pkl':
-            animation_files = [animation_file]
-        for animation_file in tqdm(animation_files):
-            self.render_animation_from_pkl(animation_file)
+        # self._update_texture = False
+        print(f'render_animation {animation_file}')
+        if animation_file.is_dir() and len(list(animation_file.glob('*.obj')))>0:
+            mesh_sequence = list(animation_file.glob('*.obj'))
+            mesh_sequence.sort()
+            self.render_animation_from_mesh_sequence(mesh_sequence, animation_file.stem)
+        else:
             
+            if animation_file.is_dir():
+                animation_files = list(animation_file.glob('*.pickle')) + list(animation_file.glob('*.pkl'))
+            elif animation_file.suffix in ['.pickle', '.pkl']:
+                animation_files = [animation_file]
+            # print(f'animation_files: {animation_files}')
+            for _f in tqdm(animation_files):
+                print(f'render_animation_from_pkl(animation_file): {_f}')
+                self.render_animation_from_pkl(_f)
+        
+    def render_animation_from_mesh_sequence(self, mesh_sequence: List[Path], sequence_name:str, fps:float=25, audio:Path=None):
+        output_filename = datetime.now().strftime(f'Screenshots/{sequence_name}_rendered_%Y%m%d_%H%M%S.mp4')
+        screenshot = Path('Screenshots')
+        tmp_folder = screenshot / 'tmp'
+        if tmp_folder.exists():
+            shutil.rmtree(tmp_folder) # remove all existing caches
+        tmp_folder.mkdir(parents=True)
+
+        log.info(f'Rendering {sequence_name}: {len(mesh_sequence)} frames to {output_filename}')
+        if hasattr(self.mesh.primitives[0], 'coes_0') and self.mesh.primitives[0].coes_0 is not None:
+            self.mesh.primitives[0].coes_0[:] = 0.0
+        
+        for i, mesh in tqdm(enumerate(mesh_sequence), total=len(mesh_sequence)):
+            _trimesh = trimesh.load(mesh, )
+            _mesh = pyrender.Mesh.from_trimesh(_trimesh)
+            self.update_mesh(_mesh.primitives[0].positions, update_normal=False)
+            color, depth = self._render()
+            Image.fromarray(color).save(f'Screenshots/tmp/{sequence_name}{i:07d}.png')
+        
+        if audio is not None and audio.exists(): # attach the audio file 
+            import librosa
+            sample, sr =  librosa.load(audio)
+            duration = sample.shape[-1]/sr
+            command = f"ffmpeg -framerate {fps} -pattern_type glob -i 'Screenshots/tmp/*.png' -i {audio}  -map 0:v -map 1:a -c:v libx264 -pix_fmt yuv420p {output_filename}"
+        else:
+            command = f"ffmpeg -framerate {fps} -pattern_type glob -i 'Screenshots/tmp/*.png' -c:v libx264 -pix_fmt yuv420p {output_filename}"
+        
+        p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,universal_newlines=True, shell=True)
+        p.wait()
+        _platform = platform.system().lower()
+        if _platform == "windows":
+            os.startfile(output_filename)
+        elif _platform == "darwin":
+            subprocess.Popen(["open", output_filename])
+        else:
+            subprocess.Popen(["xdg-open", output_filename])
+
+        self._update_texture = True
+        return 
     
     def render_animation_from_pkl(self, animation_file:Path):
         output_filename = datetime.now().strftime(f'Screenshots/{animation_file.stem}_rendered_%Y%m%d_%H%M%S.mp4')
