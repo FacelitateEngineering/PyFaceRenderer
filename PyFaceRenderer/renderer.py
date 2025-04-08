@@ -13,7 +13,7 @@ from pyrender.constants import RenderFlags
 import trimesh
 import logging as log
 from .utils import numpy2texture_data, lookat, rot2quat
-from .primitive_extension import upload_vertex_data
+from .primitive_extension import upload_vertex_data, upload_pose_data
 from PIL import Image
 from typing import Optional
 from pathlib import Path
@@ -29,7 +29,10 @@ class FaceRenderer:
     fr_window:Optional[int] = None
     ctrl_window = None
 
-    def __init__(self, mesh: Union[pyrender.Mesh, str], height=640, width=360, default_camera_pose=None, background_image:Optional[np.ndarray]=None) -> None:
+    def __init__(self, mesh: Union[pyrender.Mesh, str], height=640, width=360, 
+                 default_camera_pose=None, background_image:Optional[np.ndarray]=None, 
+                 camera_type='ortho', n_points=1000, 
+                 ) -> None:
         self._height = height
         self._width = width
         self.mesh_type = 'static'
@@ -55,11 +58,20 @@ class FaceRenderer:
             model = pickle.load(open('data/models/flame/generic_model_converted.pkl', 'rb'))
             self.trimesh = trimesh.Trimesh(model['v_template'], model['f'])
             self.mesh = pyrender.Mesh.from_trimesh(self.trimesh)
+        elif mesh == 'pointcloud':
+            sm = trimesh.creation.uv_sphere(radius=1.0)
+            sm.visual.vertex_colors = [1.0, 1.0, 1.0]
+            pts = np.random.rand(n_points, 3) - 0.5
+            tfs = np.tile(np.eye(4), (len(pts), 1, 1))
+            tfs[:,:3,3] = pts
+            self.mesh = pyrender.Mesh.from_trimesh(sm, poses=tfs)
+            self._init_position = self.mesh._primitives[0].positions.copy()
         elif isinstance(mesh, (str, Path)):
             mesh_path = Path(mesh)
             assert mesh_path.exists(), mesh_path
             self.trimesh = trimesh.load(str(mesh))
             self.mesh = pyrender.Mesh.from_trimesh(self.trimesh, )
+            
         else:
             raise NotImplementedError(f'Unrecognized mesh or topology: {mesh}')
         
@@ -80,9 +92,9 @@ class FaceRenderer:
         self.trackball = Trackball(pose=self.init_camera_pose, size=(self._width, self._height), scale=1.0, )
         # self.trackball
 
-        self.light = pyrender.DirectionalLight(color=np.array([0.0, 0.45, 0.5]), intensity=30.0,)
+        self.light = pyrender.DirectionalLight(color=np.array([0.0, 0.45, 0.5]), intensity=5.0,)
         self._camera_node = None
-        self.set_camera('ortho')
+        self.set_camera(camera_type)
         self.scene.add_node(self._camera_node)
         self.scene.main_camera_node = self._camera_node
 
@@ -111,8 +123,8 @@ class FaceRenderer:
     def set_camera(self, cam_type:str):
         if cam_type == 'persp':
             self.camera = PerspectiveCamera(
-                yfov=2*np.pi, 
-                # aspectRatio=9/16,
+                yfov=np.pi/2.0, 
+                aspectRatio=9/16,
                 znear=0.01,
                 zfar=1000000.0,
             )
@@ -128,6 +140,10 @@ class FaceRenderer:
             self._camera_node.camera = self.camera
         return 
     
+    def set_fov(self, fov):
+        self._camera_node.camera.yfov = fov
+        self._render()
+        return
 
     def center_mesh(self):
         self._renderer._platform.make_current()
@@ -155,6 +171,13 @@ class FaceRenderer:
         self.trackball = Trackball(pose=self.init_camera_pose, size=(self._width, self._height), scale=1.0, )
         self._render()
 
+    def update_pointcloud_size(self, size, ):
+        # print(f'update_pointcloud_size: {size}')
+        self._renderer._platform.make_current()
+        self.mesh._primitives[0].positions = self._init_position * size
+        upload_vertex_data(self.mesh._primitives[0])
+        self._render()        
+        
 
     def show_face_renderer(self, show_control=True):
         with dpg.window(label='Face Renderer', tag='_face_renderer_window', pos=(0, 0), width=self._width, height=self._height) as self.fr_window:
@@ -172,6 +195,21 @@ class FaceRenderer:
             dpg.add_key_press_handler(dpg.mvKey_R, callback=self.reset_pose)
             dpg.add_mouse_release_handler(callback=self.set_unclicked, )
             dpg.add_mouse_drag_handler(callback=self.dragged, )
+            def key_release():
+                mode = dpg.get_value('__fr_ctrl_panel_camera_mode')
+                self.set_mode(mode)
+                
+            dpg.add_key_down_handler(dpg.mvKey_F, callback=lambda s, a: self.set_mode('PAN'))
+            dpg.add_key_down_handler(dpg.mvKey_S, callback=lambda s, a: self.set_mode('ZOOM'))
+            dpg.add_key_release_handler(dpg.mvKey_F, callback=key_release)
+            dpg.add_key_release_handler(dpg.mvKey_S, callback=key_release)
+            def scroll(s, a):
+                self.trackball.scroll(a)
+                self._render()
+                
+            dpg.add_mouse_wheel_handler(callback=scroll)
+            
+            
 
         
         dpg.bind_item_handler_registry('_face_renderer_window', fr_handler_reg)
@@ -179,7 +217,7 @@ class FaceRenderer:
         self.trackball.set_state(Trackball.STATE_ROTATE)
         width = 200
         
-        with dpg.window(label='FR Control panel', show=show_control, tag='_face_renderer_ctrl_window', pos=(self._width, 0), height=self._height, width=2*width) as self.ctrl_window:
+        with dpg.window(label='FR Control panel', show=show_control, tag='_face_renderer_ctrl_window', pos=(self._width, 0), height=self._height-100, width=2*width) as self.ctrl_window:
             with dpg.collapsing_header(label='Mesh', default_open=True):
                 with dpg.group(horizontal=True, horizontal_spacing=0):
                     dpg.add_drag_doublex(width=width, speed=0.1, tag=f'__fr_ctrl_panel_mesh_trans', size=3, callback=self._render, min_value=-1000.0, max_value=1000.0)
@@ -190,6 +228,11 @@ class FaceRenderer:
                 with dpg.group(horizontal=True, horizontal_spacing=0):
                     dpg.add_drag_double(width=width, speed=0.0001, tag=f'__fr_ctrl_panel_mesh_scale', default_value=1.0, callback=self._render)
                     dpg.add_text(' Scale')
+                with dpg.group(horizontal=True, horizontal_spacing=0):
+                    dpg.add_drag_double(width=width, speed=1.0, tag=f'__fr_ctrl_panel_pointcloud_scale', default_value=1.0, min_value=0.1, clamped=True, callback=lambda s, a: self.update_pointcloud_size(a))
+                    dpg.add_text("", show=False, tag='__fr_ctrl_panel_pointcloud_scale_before')
+                    dpg.add_text(' Pointcloud Scale')
+
                 with dpg.collapsing_header(label='Utils', default_open=True):
                     dpg.add_button(label='Center', callback=self.center_mesh, width=width)
                     dpg.add_button(label='Scale', callback=self.scale_mesh, width=width)
@@ -203,7 +246,7 @@ class FaceRenderer:
                     self._render()
                     return 
                 
-                dpg.add_combo(['ROTATE', 'ZOOM', 'PAN', 'ROLL'], label='Mode', default_value='ROTATE', width=width, 
+                dpg.add_combo(['ROTATE', 'ZOOM', 'PAN', 'ROLL'], label='Mode', default_value='ROTATE', width=width, tag='__fr_ctrl_panel_camera_mode',
                 callback=lambda s, a: self.set_mode(a))
                 def _set_n_pose(s, a, u):
                     self.trackball._n_pose[u] = a
@@ -211,10 +254,12 @@ class FaceRenderer:
                 for i in range(4):
                     dpg.add_drag_floatx(tag=f'__fr_ctrl_panel_camera_pose_row_{i}', width=width, speed=0.05, min_value=-100.0, max_value=100.0, size=4, callback=_set_n_pose, user_data=i)
                 dpg.add_button(label='LookAt', callback=look_at_centroid, width=width)
+                dpg.add_drag_float(label='FOV', default_value=np.pi/2, min_value=0.05, max_value=np.pi, speed=0.05, clamped=True, callback=lambda s, a: self.set_fov(a))
                 dpg.add_button(label='Reset', callback=self.reset_pose, width=width, )
+                
             with dpg.collapsing_header(label='Light', default_open=False):
                 dpg.add_text('Directional')
-                dpg.add_drag_float(label='Intensity', callback=lambda s, a: self.set_light_intensity(a), width=width, default_value=30)
+                dpg.add_drag_float(label='Intensity', callback=lambda s, a: self.set_light_intensity(a), width=width, default_value=5)
                 dpg.add_color_edit(default_value=(0, int(255*0.45), int(255*0.55)), label='Color', callback=lambda s, a: self.set_light_color((a[0:3])), )
                 # dpg.add_text('Ambient')
                 # dpg.add_drag_float(label='Intensity', callback=lambda s, a: self.scene.ambient_light(a), width=width, default_value=30)
@@ -293,6 +338,13 @@ class FaceRenderer:
             dpg.add_separator()
             dpg.add_button(label='Render', callback=self._render, width=2*width)
             pass
+        
+        with dpg.window(label='Timeline', show=show_control, tag='_face_renderer_timeline_window', pos=(self._width, self._height-100), width=2*width) as self.ctrl_window:
+            dpg.add_slider_int(default_value=0, min_value=0, max_value=100, tag='__fr_ctrl_panel_timeline', width=-1)
+            # dpg.add_button(label='Play', callback=self.render_animation, width=width)
+            # dpg.add_button(label='Pause', callback=self.render_animation, width=width)
+            # dpg.add_button(label='Stop', callback=self.render_animation, width=width)
+            pass
         self._render()
 
     def set_mode(self, mode):
@@ -330,13 +382,17 @@ class FaceRenderer:
         if update_normal:
             if vertex.shape != self.trimesh.vertices.shape:
                 logger.error(f'Shape mismatch: {vertex.shape} != {self.trimesh.vertices.shape}')
+                logger.error(f'self.mesh.primitives: {self.mesh.primitives}')
+                
                 return
             self.trimesh.vertices[:] = vertex[:]
+            
             self.mesh.primitives[0].positions = self.trimesh.vertices
             self.mesh.primitives[0].normals = self.trimesh.vertex_normals
         else:
             if vertex.shape != self.mesh.primitives[0].positions.shape:
                 logger.error(f'Shape mismatch: {vertex.shape} != {self.mesh.primitives[0].positions.shape}')
+                logger.error(f'self.mesh.primitives: {self.mesh.primitives}')
                 return 
             self.mesh.primitives[0].positions = vertex
         upload_vertex_data(self.mesh.primitives[0])

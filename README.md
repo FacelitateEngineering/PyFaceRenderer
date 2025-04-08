@@ -7,6 +7,8 @@ This doesn't do much beside letting you visualize your face recognition result.
 
 ![Alt text](data/screenshot.png?raw=true "Screenshot")
 
+Windows offscreen rendering capability is spotty so this is only really working on linux. 
+This however, runs quite well as we test in WSL. 
 
 ### Install
 This repository uses [a fork of pyrender]((https://github.com/FacelitateEngineering/pyrender)) which computes vertex for linear blendshape on GLSL shader for slightly faster interactive manipulation. 

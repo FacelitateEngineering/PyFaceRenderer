@@ -10,7 +10,7 @@ def upload_vertex_data(primitive):
     if hasattr(primitive, 'face_renderer_buffer'):
         primitive.face_renderer_buffer[primitive.face_renderer_indice] = primitive.positions.reshape(-1).astype(np.float32)
     else:
-        # positions
+        # Positions
         vertex_data = primitive.positions
         n_vertex = vertex_data.shape[0]
         attr_sizes = [3]
@@ -49,3 +49,18 @@ def upload_vertex_data(primitive):
         primitive.face_renderer_indice = indice_array
 
     glBufferSubData( GL_ARRAY_BUFFER, 0, FLOAT_SZ * len(primitive.face_renderer_buffer), primitive.face_renderer_buffer,)
+
+
+def upload_pose_data(primitive):
+    if primitive.poses is None:
+        print("Primitive poses is None")
+        return 
+    pose_data = np.ascontiguousarray(
+        np.transpose(primitive.poses, [0,2,1]).flatten().astype(np.float32)
+    )    
+    modelbuffer = primitive._buffers[1]
+    glBindBuffer(GL_ARRAY_BUFFER, modelbuffer)
+    glBufferData(
+        GL_ARRAY_BUFFER, FLOAT_SZ * len(pose_data),
+        pose_data, GL_DYNAMIC_DRAW
+    )
