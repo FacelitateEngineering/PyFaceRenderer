@@ -3,3 +3,4 @@ dearpygui
 mediapipe
 opencv-python
 numpy
+dearpygui

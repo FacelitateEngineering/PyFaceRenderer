@@ -14,6 +14,29 @@ This repository uses [a fork of pyrender]((https://github.com/FacelitateEngineer
 It would be installed via requirement.txt. 
 
 
+### Wayland (Ubuntu)
+On ubuntu the context might return 0
+See more: https://github.com/mcfletch/pyopengl/issues/104
+But a potential fix for now is to directly edit 
+`site-packages/OpenGL/contextdata.py`
+
+```python
+def getContext( context = None ):
+    """Get the context (if passed, just return)
+    
+    context -- the context ID, if None, the current context
+    """
+    if context is None:
+        context = platform.GetCurrentContext()
+        # if context == 0:
+        #     from OpenGL import error
+        #     raise error.Error(
+        #         """Attempt to retrieve context when no valid context"""
+        #     )
+    return context
+```
+
+
 ### Animation Format
 Animation are simply dictionaries stored as a pickle file.
 ```python

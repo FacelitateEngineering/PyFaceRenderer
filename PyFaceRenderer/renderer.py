@@ -166,7 +166,6 @@ class FaceRenderer:
         
         with dpg.item_handler_registry() as fr_image_handler_reg:
             dpg.add_item_clicked_handler(callback=self.set_clicked, user_data='Clicked')
-            dpg.add_item_focus_handler(callback=self.set_clicked, user_data='Focus')
 
 
         with dpg.handler_registry(tag='_face_renderer_window_handler'):
